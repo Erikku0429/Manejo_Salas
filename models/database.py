@@ -6,7 +6,6 @@ import pandas as pd
 
 
 def normalizar_texto(texto):
-  """Convierte a minúsculas, elimina tildes y espacios innecesarios (sanitización 'lower')."""
   if not isinstance(texto, str):
     return ""
   texto = texto.strip().lower()
@@ -63,10 +62,25 @@ class DatabaseModel:
             """)
       conn.commit()
 
+    # Ejecutar siempre la limpieza de eventos caducados al iniciar
+    self.limpiar_eventos_expirados()
+
+  def limpiar_eventos_expirados(self):
+    """Elimina automáticamente de la BD los eventos puntuales cuya fecha sea menor a HOY."""
+    import datetime
+
+    fecha_hoy_str = datetime.date.today().strftime("%Y-%m-%d")
+    with self.get_connection() as conn:
+      cursor = conn.cursor()
+      cursor.execute(
+          "DELETE FROM horarios WHERE tipo_evento = 'evento' AND fecha < ?",
+          (fecha_hoy_str,),
+      )
+      conn.commit()
+
   def guardar_carga_semestral(
       self, df_confirmado, fecha_inicio_str, fecha_fin_str, reemplazar=True
   ):
-    """Guarda los registros sanitizados a minúsculas sin tildes."""
     import datetime
 
     with self.get_connection() as conn:
@@ -106,6 +120,23 @@ class DatabaseModel:
       )
       conn.commit()
 
+  def verificar_conflicto_horario(self, espacio, fecha_str, h_inicio, h_fin):
+    """Verifica si en esa fecha, espacio y franja horaria existe alguna clase o evento."""
+    espacio_norm = normalizar_texto(espacio)
+    with self.get_connection() as conn:
+      cursor = conn.cursor()
+      cursor.execute(
+          """
+                SELECT espacio, asignatura, docente, hora_inicio, hora_fin, tipo_evento, observacion
+                FROM horarios
+                WHERE espacio = ? AND fecha = ?
+                AND NOT (hora_fin <= ? OR hora_inicio >= ?)
+            """,
+          (espacio_norm, fecha_str, h_inicio, h_fin),
+      )
+      rows = cursor.fetchall()
+    return rows
+
   def obtener_vigencia_semestre(self):
     import datetime
 
@@ -140,6 +171,7 @@ class DatabaseModel:
     )
 
   def obtener_todos_los_horarios(self):
+    self.limpiar_eventos_expirados()
     with self.get_connection() as conn:
       cursor = conn.cursor()
       cursor.execute("""

@@ -23,10 +23,7 @@ class HorarioController:
       raise ValueError("El archivo subido no es un libro de Excel válido.")
 
     if "BD_Calendario_Semestre" not in xls.sheet_names:
-      raise ValueError(
-          "⚠️ **Estructura Incorrecta:** El archivo cargado no contiene la"
-          " pestaña obligatoria `'BD_Calendario_Semestre'`."
-      )
+      raise ValueError("PESTAÑA_MISSING")
 
     df = pd.read_excel(uploaded_file, sheet_name="BD_Calendario_Semestre")
 
@@ -43,15 +40,12 @@ class HorarioController:
     ]
 
     if columnas_faltantes:
-      raise ValueError(
-          "⚠️ **Columnas Faltantes:** El archivo no contiene las columnas:"
-          f" `{', '.join(columnas_faltantes)}`."
-      )
+      raise ValueError(f"COLUMNAS_MISSING:{', '.join(columnas_faltantes)}")
 
     if df.empty:
-      raise ValueError("El archivo cargado está vacío.")
+      raise ValueError("El archivo cargado se encuentra totalmente vacío.")
 
-    # Normalización para deduplicar
+    # Normalización para deduplicación
     df["ESPACIO / SALÓN_norm"] = df["ESPACIO / SALÓN"].apply(normalizar_texto)
     df["DÍA_norm"] = df["DÍA"].apply(normalizar_texto)
     df["ASIGNATURA_norm"] = df["ASIGNATURA"].apply(normalizar_texto)
