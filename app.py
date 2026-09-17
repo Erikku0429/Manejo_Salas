@@ -31,7 +31,6 @@ def generar_estilo_color_materia(nombre_asignatura):
   hash_hex = hashlib.md5(nombre_norm.encode("utf-8")).hexdigest()
   hue = int(hash_hex[:4], 16) % 360  # Tono HSL de 0 a 360
 
-  # Fondo oscuro elegante con borde brillante y texto claro coordinado
   bg_color = f"hsl({hue}, 65%, 18%)"
   border_color = f"hsl({hue}, 80%, 55%)"
   text_color = f"hsl({hue}, 90%, 85%)"
@@ -42,11 +41,10 @@ def generar_estilo_color_materia(nombre_asignatura):
   )
 
 
-# Estilos CSS generales
+# Estilos CSS
 st.markdown(
     """
     <style>
-    /* Estilo base para tarjetas de clase */
     .class-card {
         border-radius: 6px;
         padding: 10px;
@@ -54,22 +52,31 @@ st.markdown(
         box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
     
-    /* Estilo para eventos especiales (Ámbar / Naranja) */
     .class-card-evento {
         background: linear-gradient(135deg, #451a03 0%, #1c0901 100%) !important;
         border-left: 4px solid #f59e0b !important;
     }
     
-    /* Estilo para aulas disponibles */
+    /* Tarjeta de Franja Horaria Disponible */
     .card-disponible {
-        background: rgba(16, 185, 129, 0.08);
+        background: rgba(16, 185, 129, 0.12);
         border: 1px dashed #10b981;
         border-left: 4px solid #10b981;
         border-radius: 6px;
-        padding: 10px;
+        padding: 8px 10px;
         margin-bottom: 8px;
         color: #a7f3d0;
+    }
+
+    /* Encabezado especial para el DÍA ACTUAL (Hoy) */
+    .header-hoy {
+        background: linear-gradient(135deg, #064e3b 0%, #022c22 100%);
+        border: 2px solid #10b981;
+        border-radius: 8px;
+        padding: 8px;
         text-align: center;
+        color: #6ee7b7;
+        box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
     }
 
     .class-title {
@@ -110,7 +117,7 @@ st.markdown(
 )
 
 
-# Modales / Popups
+# Modales
 @st.dialog("🎉 Carga Exitosa")
 def mostrar_popup_exito(total_registros, f_ini, f_fin):
   st.success("### ¡Las asignaturas han sido guardadas!")
@@ -161,7 +168,7 @@ tab_horarios, tab_cargue, tab_eventos = st.tabs([
 ])
 
 # -----------------------------------------------------------------------------
-# TAB 1: CONSULTA SEMANAL EN MATRIZ DE COLORES POR ASIGNATURA
+# TAB 1: CONSULTA SEMANAL CON RESALTADO DE HOY Y DISPONIBILIDAD HORARIA
 # -----------------------------------------------------------------------------
 with tab_horarios:
   col_h1, col_h2 = st.columns([3, 1])
@@ -179,7 +186,7 @@ with tab_horarios:
         " **'Confirmación de Carga Semestral'** para importar el semestre."
     )
   else:
-    # FILTROS DE BÚSQUEDA (SIN EL CAMPO DE SELECCIONAR SEMANA)
+    # FILTROS
     col_f1, col_f2, col_f3 = st.columns([3, 3, 3])
 
     with col_f1:
@@ -200,9 +207,9 @@ with tab_horarios:
           "👨‍🏫 Buscar por Docente:", placeholder="Ej. nicolas"
       )
 
-    # Cálculo del Rango de la Semana Activa basada en la fecha actual
-    fecha_ref = datetime.date.today()
-    lunes_semana = fecha_ref - datetime.timedelta(days=fecha_ref.weekday())
+    # Cálculo del Rango de la Semana Activa basada en la fecha de HOY
+    fecha_hoy = datetime.date.today()
+    lunes_semana = fecha_hoy - datetime.timedelta(days=fecha_hoy.weekday())
     sabado_semana = lunes_semana + datetime.timedelta(days=5)
 
     # Filtrar datos por el rango semanal
@@ -256,41 +263,74 @@ with tab_horarios:
         f" (Lunes) al **{fin_txt}**"
     )
 
-    # RENDERIZADO DE MATRIZ SEMANAL
+    # RENDERIZADO DE MATRIZ SEMANAL CON DETECCIÓN DE FRANJAS LIBRES Y DÍA ACTUAL
     cols_dias = st.columns(len(dias_semana_nombres))
 
     for idx_d, dia_nom in enumerate(dias_semana_nombres):
       fecha_dia_actual = lunes_semana + datetime.timedelta(days=idx_d)
       dia_norm = normalizar_texto(dia_nom)
+      es_dia_hoy = fecha_dia_actual == fecha_hoy
 
       with cols_dias[idx_d]:
-        st.markdown(
-            f"### {dia_nom}\n**{fecha_dia_actual.strftime('%d/%m')}**"
-        )
+        # Encabezado Verde Resaltado si es HOY
+        if es_dia_hoy:
+          st.markdown(
+              f"""
+                        <div class="header-hoy">
+                            <div style="font-size:0.75rem; font-weight:800;">📍 HOY</div>
+                            <h3 style="margin:0; padding:0; font-size:1.1rem; color:#6ee7b7;">{dia_nom}</h3>
+                            <div style="font-size:0.85rem; font-weight:700;">{fecha_dia_actual.strftime('%d/%m')}</div>
+                        </div>
+                    """,
+              unsafe_allow_html=True,
+          )
+        else:
+          st.markdown(
+              f"### {dia_nom}\n**{fecha_dia_actual.strftime('%d/%m')}**"
+          )
+
         st.markdown("---")
 
         clases_dia = df_filtered[
             df_filtered["dia"].apply(normalizar_texto) == dia_norm
         ].sort_values(by="hora_inicio")
 
+        # Rango operativo oficial (07:00 a 19:00)
+        hora_cursor = 7
+        hora_limite = 19
+
         if clases_dia.empty:
           st.markdown(
               """
                         <div class="card-disponible">
-                            <div style="font-weight:700; font-size:0.85rem;">🟢 AULA DISPONIBLE</div>
-                            <div style="font-size:0.75rem; margin-top:2px;">Sin asignaturas</div>
+                            <div style="font-weight:700; font-size:0.85rem;">🟢 DISPONIBLE</div>
+                            <div style="font-size:0.75rem; margin-top:2px;">07:00 - 19:00 (Todo el día libre)</div>
                         </div>
                     """,
               unsafe_allow_html=True,
           )
         else:
           for _, c in clases_dia.iterrows():
+            h_ini = int(c["hora_inicio"])
+            h_fin = int(c["hora_fin"])
+
+            # Si hay un espacio libre antes de esta clase, dibujar recuadro verde DISPONIBLE
+            if h_ini > hora_cursor:
+              st.markdown(
+                  f"""
+                                <div class="card-disponible">
+                                    <div style="font-weight:700; font-size:0.8rem;">🟢 DISPONIBLE</div>
+                                    <div style="font-size:0.72rem; margin-top:2px;">⏰ {hora_cursor:02d}:00 - {h_ini:02d}:00</div>
+                                </div>
+                            """,
+                  unsafe_allow_html=True,
+              )
+
+            # Dibujar la Clase
             es_evento = c["tipo_evento"].lower() == "evento"
             asig_upper = str(c["asignatura"]).upper()
             doc_upper = str(c["docente"]).upper()
             salon_upper = str(c["espacio"]).upper()
-            h_ini = int(c["hora_inicio"])
-            h_fin = int(c["hora_fin"])
 
             if es_evento:
               style_card = ""
@@ -307,6 +347,20 @@ with tab_horarios:
                             <div class="class-doc">👨‍🏫 {doc_upper}</div>
                         </div>
                     """,
+                unsafe_allow_html=True,
+            )
+
+            hora_cursor = max(hora_cursor, h_fin)
+
+          # Si queda espacio libre al final de la jornada (hasta las 19:00)
+          if hora_cursor < hora_limite:
+            st.markdown(
+                f"""
+                            <div class="card-disponible">
+                                <div style="font-weight:700; font-size:0.8rem;">🟢 DISPONIBLE</div>
+                                <div style="font-size:0.72rem; margin-top:2px;">⏰ {hora_cursor:02d}:00 - {hora_limite:02d}:00</div>
+                            </div>
+                        """,
                 unsafe_allow_html=True,
             )
 
