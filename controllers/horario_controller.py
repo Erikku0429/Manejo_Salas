@@ -7,8 +7,8 @@ class HorarioController:
   def __init__(self, db_model):
     self.db = db_model
 
-  def procesar_excel_cargue_unico(self, uploaded_file):
-    """Lee el Excel y extrae únicamente la oferta académica base semanal (sin repetición diaria)."""
+  def procesar_excel_ordenado(self, uploaded_file):
+    """Lee el Excel, extrae las materias únicas y las ordena por Salón -> Día -> Hora Inicio."""
     df = pd.read_excel(uploaded_file, sheet_name='BD_Calendario_Semestre')
 
     columnas_requeridas = [
@@ -25,8 +25,10 @@ class HorarioController:
             f"El archivo no contiene la columna requerida: '{col}'"
         )
 
-    # Limpieza previa
-    df['ESPACIO / SALÓN'] = df['ESPACIO / SALÓN'].astype(str).str.upper().str.strip()
+    # Limpieza
+    df['ESPACIO / SALÓN'] = (
+        df['ESPACIO / SALÓN'].astype(str).str.upper().str.strip()
+    )
     df['DÍA'] = df['DÍA'].astype(str).str.upper().str.strip()
     df['ASIGNATURA'] = df['ASIGNATURA'].astype(str).str.upper().str.strip()
     df['DOCENTE'] = df['DOCENTE'].astype(str).str.upper().str.strip()
@@ -37,14 +39,32 @@ class HorarioController:
         df['HORA FIN (24H)'], errors='coerce'
     ).fillna(9)
 
-    # DEDUPLICACIÓN: Mantiene únicamente la lista única de asignaturas semanales
+    # Deduplicación
     df_unicas = df.drop_duplicates(
         subset=['ESPACIO / SALÓN', 'DÍA', 'ASIGNATURA', 'DOCENTE']
     ).copy()
+
+    # Mapeo de orden para los días de la semana
+    mapa_orden_dias = {
+        'LUNES': 1,
+        'MARTES': 2,
+        'MIÉRCOLES': 3,
+        'JUEVES': 4,
+        'VIERNES': 5,
+        'SÁBADO': 6,
+        'DOMINGO': 7,
+    }
+    df_unicas['_orden_dia'] = df_unicas['DÍA'].map(mapa_orden_dias).fillna(8)
+
+    # Ordenamiento por Salón, Día de la semana y Hora de Inicio
+    df_unicas = df_unicas.sort_values(
+        by=['ESPACIO / SALÓN', '_orden_dia', 'HORA INICIO (24H)']
+    ).drop(columns=['_orden_dia'])
+
     return df_unicas.reset_index(drop=True)
 
   def validar_rango_laboral(self, df_editado):
-    """Verifica que ninguna clase esté antes de las 07:00 o después de las 19:00."""
+    """Valida que ninguna hora esté fuera del rango 07:00 a 19:00."""
     fuera_de_rango = []
     for idx, row in df_editado.iterrows():
       h_ini = row['HORA INICIO (24H)']
@@ -63,7 +83,7 @@ class HorarioController:
   def proyectar_y_guardar_semestre(
       self, df_oferta_confirmada, fecha_inicio, fecha_fin
   ):
-    """Toma las clases semanales confirmadas y genera automáticamente el semestre en la BD."""
+    """Genera las clases diarias proyectadas entre las fechas de inicio y fin configuradas."""
     mapa_dias = {
         0: 'LUNES',
         1: 'MARTES',
@@ -79,8 +99,6 @@ class HorarioController:
 
     while curr_date <= fecha_fin:
       dia_txt = mapa_dias.get(curr_date.weekday(), '')
-
-      # Filtrar clases que corresponden a este día de la semana
       clases_dia = df_oferta_confirmada[df_oferta_confirmada['DÍA'] == dia_txt]
 
       for _, row in clases_dia.iterrows():
