@@ -15,25 +15,20 @@ db = DatabaseModel()
 controller = HorarioController(db)
 
 # -----------------------------------------------------------------------------
-# ESTILOS CSS CORREGIDOS (COMPATIBLES CON MODO OSCURO / CLARO Y FILA RESALTADA)
+# ESTILOS CSS (RESALTADO Y TARJETAS EN MODO OSCURO / CLARO)
 # -----------------------------------------------------------------------------
 st.markdown(
     """
     <style>
-    /* 1. Resaltado de la Fila Completa seleccionada en la tabla */
     [data-testid="stDataEditor"] div[role="row"]:has(div[aria-selected="true"]) {
         background-color: rgba(59, 130, 246, 0.22) !important;
         border-left: 4px solid #3b82f6 !important;
     }
-
-    /* 2. Resaltado enfocado para la Celda en edición activa */
     [data-testid="stDataEditor"] div[aria-selected="true"] {
         background-color: rgba(59, 130, 246, 0.35) !important;
         outline: 2px solid #60a5fa !important;
         outline-offset: -2px;
     }
-
-    /* 3. Corrección de color de las tarjetas de métricas para Dark / Light Mode */
     [data-testid="stMetric"] {
         background-color: rgba(255, 255, 255, 0.05) !important;
         border: 1px solid rgba(255, 255, 255, 0.12) !important;
@@ -41,8 +36,6 @@ st.markdown(
         padding: 12px 16px !important;
         border-radius: 8px !important;
     }
-
-    /* Ajuste de contraste para el texto dentro de métricas */
     [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
         color: inherit !important;
     }
@@ -52,7 +45,7 @@ st.markdown(
 )
 
 
-# Modal / Popup de Éxito
+# Modal de Carga Exitosa con Redirección
 @st.dialog("🎉 Carga Exitosa")
 def mostrar_popup_exito(total_registros, f_ini, f_fin):
   st.success("### ¡Las asignaturas han sido guardadas!")
@@ -61,29 +54,111 @@ def mostrar_popup_exito(total_registros, f_ini, f_fin):
       f"• **Sesiones Proyectadas:** **{total_registros} clases** registradas"
       " automáticamente en la base de datos."
   )
-  st.info("La información ya está lista y guardada de forma permanente.")
-  if st.button("Entendido / Cerrar", type="primary"):
+  st.info("Haz clic para ser redirigido a la **Consulta de Horarios**.")
+  if st.button("Ir a Consulta de Horarios ➡️", type="primary"):
+    st.session_state["pestana_activa"] = "📅 Consulta de Horarios"
     st.rerun()
 
 
-# Encabezado Principal
+# Modal de Confirmación de Vaciado
+@st.dialog("⚠️ Confirmar Vaciado de la Base de Datos")
+def mostrar_popup_vaciar_db():
+  st.warning(
+      "**¿Estás seguro de que deseas eliminar TODOS los horarios guardados?**"
+  )
+  st.write(
+      "Esta acción eliminará de forma permanente los registros de `horarios.db`."
+  )
+
+  col_v1, col_v2 = st.columns(2)
+  with col_v1:
+    if st.button("❌ Cancelar", use_container_width=True):
+      st.rerun()
+  with col_v2:
+    if st.button(
+        "🗑️ Sí, Vaciar Base de Datos", type="primary", use_container_width=True
+    ):
+      db.vaciar_base_de_datos()
+      if "df_unicas" in st.session_state:
+        del st.session_state.df_unicas
+      st.session_state["pestana_activa"] = "📋 Confirmación de Carga Semestral"
+      st.success("Base de datos vaciada correctamente.")
+      st.rerun()
+
+
+# Evaluacion de Vigencia del Semestre al Iniciar
+es_vigente, msj_vigencia, f_ini_db, f_fin_db = db.obtener_vigencia_semestre()
+
+if "pestana_activa" not in st.session_state:
+  if es_vigente:
+    st.session_state["pestana_activa"] = "📅 Consulta de Horarios"
+  else:
+    st.session_state["pestana_activa"] = "📋 Confirmación de Carga Semestral"
+
 st.title("🏫 Gestión de Aulas y Carga Semestral")
 
-tab_cargue, tab_horarios, tab_eventos = st.tabs([
-    "📋 Confirmación de Carga Semestral",
+if es_vigente:
+  st.caption(f"🟢 **Estado:** {msj_vigencia}")
+else:
+  st.warning(f"⚠️ **Atención:** {msj_vigencia}")
+
+tab_horarios, tab_cargue, tab_eventos = st.tabs([
     "📅 Consulta de Horarios",
+    "📋 Confirmación de Carga Semestral",
     "➕ Eventos y Cambios",
 ])
 
 # -----------------------------------------------------------------------------
-# TAB 1: CONFIRMACIÓN DE ASIGNATURAS CON RESALTADO DE FILA COMPLETA
+# TAB 1: CONSULTA DE HORARIOS (VISTA PRINCIPAL)
+# -----------------------------------------------------------------------------
+with tab_horarios:
+  col_tit, col_btn = st.columns([3, 1])
+  with col_tit:
+    st.subheader("Consulta de Horarios Cargados")
+  with col_btn:
+    if st.button("🗑️ Vaciar Base de Datos", type="secondary"):
+      mostrar_popup_vaciar_db()
+
+  df_horarios = db.obtener_todos_los_horarios()
+
+  if df_horarios.empty:
+    st.info(
+        "La base de datos se encuentra vacía. Dirígete a **'Confirmación de"
+        " Carga Semestral'** para importar el periodo académico."
+    )
+  else:
+    col1, col2 = st.columns(2)
+    s_filter = col1.selectbox(
+        "Filtrar por Salón / Aula:",
+        ["TODOS"] + sorted(df_horarios["espacio"].unique().tolist()),
+    )
+    d_filter = col2.date_input("Filtrar por Fecha Específica:", value=None)
+
+    df_view = df_horarios.copy()
+    if s_filter != "TODOS":
+      df_view = df_view[df_view["espacio"] == s_filter]
+    if d_filter is not None:
+      df_view = df_view[df_view["fecha"] == d_filter.strftime("%Y-%m-%d")]
+
+    st.dataframe(
+        df_view[[
+            "espacio",
+            "fecha",
+            "dia",
+            "hora_inicio",
+            "hora_fin",
+            "asignatura",
+            "docente",
+            "tipo_evento",
+        ]],
+        use_container_width=True,
+    )
+
+# -----------------------------------------------------------------------------
+# TAB 2: CONFIRMACIÓN DE CARGA SEMESTRAL (CON VALIDACIÓN DE ARCHIVO)
 # -----------------------------------------------------------------------------
 with tab_cargue:
   st.markdown("### 1️⃣ Paso 1: Configurar Fechas del Semestre")
-  st.caption(
-      "Selecciona la fecha de inicio y finalización del periodo académico:"
-  )
-
   c_f1, c_f2 = st.columns(2)
   f_inicio = c_f1.date_input(
       "Fecha de Inicio del Semestre:", value=datetime.date(2026, 2, 2)
@@ -96,7 +171,7 @@ with tab_cargue:
     st.error("⚠️ La fecha de finalización debe ser posterior a la de inicio.")
   else:
     st.markdown("---")
-    st.markdown("### 2️⃣ Paso 2: Cargar Archivo de Horarios")
+    st.markdown("### 2️⃣ Paso 2: Cargar y Validar Archivo de Horarios")
 
     uploaded_file = st.file_uploader(
         "Sube el archivo Excel formateado (`.xlsx`):", type=["xlsx"]
@@ -104,27 +179,25 @@ with tab_cargue:
 
     if uploaded_file is not None:
       try:
-        if "df_unicas" not in st.session_state:
-          st.session_state.df_unicas = controller.procesar_excel_ordenado(
-              uploaded_file
-          )
-
-        cols_visibles = [
+        # Validación de formato del archivo Excel
+        st.session_state.df_unicas = controller.validar_y_procesar_excel(
+            uploaded_file
+        )
+        df_edit = st.session_state.df_unicas[[
             "ESPACIO / SALÓN",
             "DÍA",
             "HORA INICIO (24H)",
             "HORA FIN (24H)",
             "ASIGNATURA",
             "DOCENTE",
-        ]
-        df_edit = st.session_state.df_unicas[cols_visibles]
+        ]]
 
         st.markdown("---")
         st.markdown("### 3️⃣ Paso 3: Confirmar Oferta Académica")
         st.info(
             "💡 **Tip de Edición:** Al hacer clic sobre cualquier celda,"
-            " **toda la fila de la clase se resaltará** para mantener la guía"
-            " visual de lo que estás editando."
+            " **toda la fila de la clase se resaltará** para guiarte en los"
+            " cambios."
         )
 
         col_m1, col_m2, col_m3 = st.columns(3)
@@ -134,7 +207,6 @@ with tab_cargue:
         )
         col_m3.metric("⏰ Horario Oficial Funcionarios", "07:00 a 19:00")
 
-        # Tabla interactiva con resaltado dinámico de fila completa
         df_editado = st.data_editor(
             df_edit,
             num_rows="dynamic",
@@ -174,7 +246,6 @@ with tab_cargue:
             },
         )
 
-        # Validaciones de seguridad de horario (07:00 a 19:00)
         errores_rango = controller.validar_rango_laboral(df_editado)
 
         if errores_rango:
@@ -188,8 +259,7 @@ with tab_cargue:
                 f" Horario {err['inicio']}:00 a {err['fin']}:00 hrs."
             )
           st.error(
-              "⚠️ Modifica las horas marcadas en la tabla para habilitar el"
-              " guardado."
+              "⚠️ Modifica las horas en la tabla para habilitar el guardado."
           )
         else:
           st.markdown("---")
@@ -200,45 +270,10 @@ with tab_cargue:
             total_registros = len(db.obtener_todos_los_horarios())
             mostrar_popup_exito(total_registros, f_inicio, f_fin)
 
+      except ValueError as val_err:
+        st.error(str(val_err))
       except Exception as e:
-        st.error(f"Error al procesar el archivo: {e}")
-
-# -----------------------------------------------------------------------------
-# TAB 2: CONSULTA DE HORARIOS
-# -----------------------------------------------------------------------------
-with tab_horarios:
-  st.subheader("Consulta de Horarios Cargados")
-  df_horarios = db.obtener_todos_los_horarios()
-
-  if df_horarios.empty:
-    st.info("No hay horarios cargados aún.")
-  else:
-    col1, col2 = st.columns(2)
-    s_filter = col1.selectbox(
-        "Filtrar Salón:",
-        ["TODOS"] + sorted(df_horarios["espacio"].unique().tolist()),
-    )
-    d_filter = col2.date_input("Filtrar Fecha:", value=None)
-
-    df_view = df_horarios.copy()
-    if s_filter != "TODOS":
-      df_view = df_view[df_view["espacio"] == s_filter]
-    if d_filter is not None:
-      df_view = df_view[df_view["fecha"] == d_filter.strftime("%Y-%m-%d")]
-
-    st.dataframe(
-        df_view[[
-            "espacio",
-            "fecha",
-            "dia",
-            "hora_inicio",
-            "hora_fin",
-            "asignatura",
-            "docente",
-            "tipo_evento",
-        ]],
-        use_container_width=True,
-    )
+        st.error(f"Error inesperado al procesar el archivo: {e}")
 
 # -----------------------------------------------------------------------------
 # TAB 3: REGISTRO DE EVENTOS
