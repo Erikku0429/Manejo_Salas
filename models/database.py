@@ -1,11 +1,20 @@
 import os
 import sqlite3
 import sys
+import unicodedata
 import pandas as pd
 
 
+def normalizar_texto(texto):
+  """Convierte a minúsculas, elimina tildes y espacios innecesarios (sanitización 'lower')."""
+  if not isinstance(texto, str):
+    return ""
+  texto = texto.strip().lower()
+  nfkd = unicodedata.normalize("NFKD", texto)
+  return "".join([c for c in nfkd if not unicodedata.combining(c)])
+
+
 def obtener_ruta_persistente_db(nombre_db="horarios.db"):
-  """Garantiza la ruta física portable al lado del ejecutable o script."""
   if getattr(sys, "frozen", False):
     base_dir = os.path.dirname(sys.executable)
   else:
@@ -27,7 +36,6 @@ class DatabaseModel:
       cursor = conn.cursor()
       cursor.execute("PRAGMA journal_mode=WAL;")
 
-      # Tabla principal de horarios
       cursor.execute("""
                 CREATE TABLE IF NOT EXISTS horarios (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,12 +48,11 @@ class DatabaseModel:
                     hora_fin INTEGER NOT NULL,
                     asignatura TEXT NOT NULL,
                     docente TEXT NOT NULL,
-                    tipo_evento TEXT DEFAULT 'REGULAR',
+                    tipo_evento TEXT DEFAULT 'regular',
                     observacion TEXT
                 )
             """)
 
-      # Tabla de configuración y vigencia del semestre
       cursor.execute("""
                 CREATE TABLE IF NOT EXISTS config_semestre (
                     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -59,37 +66,36 @@ class DatabaseModel:
   def guardar_carga_semestral(
       self, df_confirmado, fecha_inicio_str, fecha_fin_str, reemplazar=True
   ):
-    """Guarda los horarios y registra el periodo de vigencia del semestre."""
+    """Guarda los registros sanitizados a minúsculas sin tildes."""
     import datetime
 
     with self.get_connection() as conn:
       cursor = conn.cursor()
       if reemplazar:
-        cursor.execute("DELETE FROM horarios WHERE tipo_evento = 'REGULAR'")
+        cursor.execute("DELETE FROM horarios WHERE tipo_evento = 'regular'")
 
       registros = []
       for _, row in df_confirmado.iterrows():
         registros.append((
-            str(row["ESPACIO / SALÓN"]).strip().upper(),
+            normalizar_texto(str(row["ESPACIO / SALÓN"])),
             str(row["FECHA"]).strip(),
-            str(row["MES"]).strip().upper(),
+            normalizar_texto(str(row["MES"])),
             int(row["DÍA NUM"]),
-            str(row["DÍA"]).strip().upper(),
+            normalizar_texto(str(row["DÍA"])),
             int(row["HORA INICIO (24H)"]),
             int(row["HORA FIN (24H)"]),
-            str(row["ASIGNATURA"]).strip().upper(),
-            str(row["DOCENTE"]).strip().upper(),
+            normalizar_texto(str(row["ASIGNATURA"])),
+            normalizar_texto(str(row["DOCENTE"])),
         ))
 
       cursor.executemany(
           """
                 INSERT INTO horarios (espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, asignatura, docente, tipo_evento)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'REGULAR')
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'regular')
             """,
           registros,
       )
 
-      # Actualizar metadatos de vigencia del semestre
       fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
       cursor.execute(
           """
@@ -98,35 +104,30 @@ class DatabaseModel:
             """,
           (fecha_inicio_str, fecha_fin_str, fecha_hoy),
       )
-
       conn.commit()
 
   def obtener_vigencia_semestre(self):
-    """Verifica si la base de datos contiene un semestre vigente."""
     import datetime
 
     with self.get_connection() as conn:
       cursor = conn.cursor()
       cursor.execute(
-          "SELECT fecha_inicio, fecha_fin, fecha_cargue FROM config_semestre"
-          " WHERE id = 1"
+          "SELECT fecha_inicio, fecha_fin FROM config_semestre WHERE id = 1"
       )
       row = cursor.fetchone()
 
     if not row:
       return False, "No hay ningún semestre cargado en el sistema.", None, None
 
-    f_inicio_str, f_fin_str, _ = row
+    f_inicio_str, f_fin_str = row
     today = datetime.date.today()
     f_fin_date = datetime.datetime.strptime(f_fin_str, "%Y-%m-%d").date()
 
     if today > f_fin_date:
       return (
           False,
-          (
-              f"El semestre guardado finalizó el {f_fin_str}. Se requiere"
-              " realizar un nuevo cargue semestral."
-          ),
+          f"El semestre guardado finalizó el {f_fin_str}. Se requiere un nuevo"
+          " cargue semestral.",
           f_inicio_str,
           f_fin_str,
       )
@@ -179,28 +180,28 @@ class DatabaseModel:
 
     fecha_dt = datetime.datetime.strptime(fecha, "%Y-%m-%d")
     dias_esp = {
-        0: "LUNES",
-        1: "MARTES",
-        2: "MIÉRCOLES",
-        3: "JUEVES",
-        4: "VIERNES",
-        5: "SÁBADO",
-        6: "DOMINGO",
+        0: "lunes",
+        1: "martes",
+        2: "miercoles",
+        3: "jueves",
+        4: "viernes",
+        5: "sabado",
+        6: "domingo",
     }
     dia_str = dias_esp[fecha_dt.weekday()]
     meses_esp = {
-        1: "ENERO",
-        2: "FEBRERO",
-        3: "MARZO",
-        4: "ABRIL",
-        5: "MAYO",
-        6: "JUNIO",
-        7: "JULIO",
-        8: "AGOSTO",
-        9: "SEPTIEMBRE",
-        10: "OCTUBRE",
-        11: "NOVIEMBRE",
-        12: "DICIEMBRE",
+        1: "enero",
+        2: "febrero",
+        3: "marzo",
+        4: "abril",
+        5: "mayo",
+        6: "junio",
+        7: "julio",
+        8: "agosto",
+        9: "septiembre",
+        10: "octubre",
+        11: "noviembre",
+        12: "diciembre",
     }
     mes_str = meses_esp[fecha_dt.month]
 
@@ -209,19 +210,19 @@ class DatabaseModel:
       cursor.execute(
           """
                 INSERT INTO horarios (espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, asignatura, docente, tipo_evento, observacion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'EVENTO', ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'evento', ?)
             """,
           (
-              espacio.upper(),
+              normalizar_texto(espacio),
               fecha,
               mes_str,
               fecha_dt.day,
               dia_str,
               hora_inicio,
               hora_fin,
-              asignatura.upper(),
-              docente.upper(),
-              observacion,
+              normalizar_texto(asignatura),
+              normalizar_texto(docente),
+              normalizar_texto(observacion),
           ),
       )
       conn.commit()

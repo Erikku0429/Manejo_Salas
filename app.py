@@ -1,4 +1,6 @@
 import datetime
+import hashlib
+import unicodedata
 import pandas as pd
 import streamlit as st
 from controllers.horario_controller import HorarioController
@@ -14,30 +16,93 @@ st.set_page_config(
 db = DatabaseModel()
 controller = HorarioController(db)
 
-# -----------------------------------------------------------------------------
-# ESTILOS CSS (RESALTADO Y TARJETAS EN MODO OSCURO / CLARO)
-# -----------------------------------------------------------------------------
+
+def normalizar_texto(texto):
+  if not isinstance(texto, str):
+    return ""
+  texto = texto.strip().lower()
+  nfkd = unicodedata.normalize("NFKD", texto)
+  return "".join([c for c in nfkd if not unicodedata.combining(c)])
+
+
+def generar_estilo_color_materia(nombre_asignatura):
+  """Genera un estilo dinámico único por materia con excelente legibilidad de texto."""
+  nombre_norm = normalizar_texto(nombre_asignatura)
+  hash_hex = hashlib.md5(nombre_norm.encode("utf-8")).hexdigest()
+  hue = int(hash_hex[:4], 16) % 360  # Tono HSL de 0 a 360
+
+  # Fondo oscuro elegante con borde brillante y texto claro coordinado
+  bg_color = f"hsl({hue}, 65%, 18%)"
+  border_color = f"hsl({hue}, 80%, 55%)"
+  text_color = f"hsl({hue}, 90%, 85%)"
+
+  return (
+      f"background: {bg_color}; border-left: 4px solid {border_color}; color:"
+      f" {text_color};"
+  )
+
+
+# Estilos CSS generales
 st.markdown(
     """
     <style>
-    [data-testid="stDataEditor"] div[role="row"]:has(div[aria-selected="true"]) {
-        background-color: rgba(59, 130, 246, 0.22) !important;
-        border-left: 4px solid #3b82f6 !important;
+    /* Estilo base para tarjetas de clase */
+    .class-card {
+        border-radius: 6px;
+        padding: 10px;
+        margin-bottom: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
     }
-    [data-testid="stDataEditor"] div[aria-selected="true"] {
-        background-color: rgba(59, 130, 246, 0.35) !important;
-        outline: 2px solid #60a5fa !important;
-        outline-offset: -2px;
+    
+    /* Estilo para eventos especiales (Ámbar / Naranja) */
+    .class-card-evento {
+        background: linear-gradient(135deg, #451a03 0%, #1c0901 100%) !important;
+        border-left: 4px solid #f59e0b !important;
     }
+    
+    /* Estilo para aulas disponibles */
+    .card-disponible {
+        background: rgba(16, 185, 129, 0.08);
+        border: 1px dashed #10b981;
+        border-left: 4px solid #10b981;
+        border-radius: 6px;
+        padding: 10px;
+        margin-bottom: 8px;
+        color: #a7f3d0;
+        text-align: center;
+    }
+
+    .class-title {
+        font-weight: 700;
+        font-size: 0.88rem;
+        margin-bottom: 3px;
+    }
+    .class-doc {
+        font-size: 0.78rem;
+        opacity: 0.85;
+    }
+    .class-time {
+        font-size: 0.72rem;
+        font-weight: 600;
+        margin-bottom: 4px;
+        opacity: 0.9;
+    }
+
     [data-testid="stMetric"] {
         background-color: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-left: 4px solid #3b82f6 !important;
-        padding: 12px 16px !important;
-        border-radius: 8px !important;
+        border-left: 4px solid #8b5cf6 !important;
+        padding: 12px;
+        border-radius: 8px;
     }
-    [data-testid="stMetricLabel"], [data-testid="stMetricValue"] {
-        color: inherit !important;
+
+    [data-testid="stDataEditor"] div[role="row"]:has(div[aria-selected="true"]) {
+        background-color: rgba(139, 92, 246, 0.22) !important;
+        border-left: 4px solid #8b5cf6 !important;
+    }
+    [data-testid="stDataEditor"] div[aria-selected="true"] {
+        background-color: rgba(139, 92, 246, 0.35) !important;
+        outline: 2px solid #a78bfa !important;
+        outline-offset: -2px;
     }
     </style>
 """,
@@ -45,31 +110,25 @@ st.markdown(
 )
 
 
-# Modal de Carga Exitosa con Redirección
+# Modales / Popups
 @st.dialog("🎉 Carga Exitosa")
 def mostrar_popup_exito(total_registros, f_ini, f_fin):
   st.success("### ¡Las asignaturas han sido guardadas!")
   st.write(
       f"• **Periodo Configurado:** Del **{f_ini}** al **{f_fin}**\n"
       f"• **Sesiones Proyectadas:** **{total_registros} clases** registradas"
-      " automáticamente en la base de datos."
+      " en la base de datos."
   )
-  st.info("Haz clic para ser redirigido a la **Consulta de Horarios**.")
   if st.button("Ir a Consulta de Horarios ➡️", type="primary"):
     st.session_state["pestana_activa"] = "📅 Consulta de Horarios"
     st.rerun()
 
 
-# Modal de Confirmación de Vaciado
-@st.dialog("⚠️ Confirmar Vaciado de la Base de Datos")
+@st.dialog("⚠️ Confirmar Vaciado de Base de Datos")
 def mostrar_popup_vaciar_db():
   st.warning(
       "**¿Estás seguro de que deseas eliminar TODOS los horarios guardados?**"
   )
-  st.write(
-      "Esta acción eliminará de forma permanente los registros de `horarios.db`."
-  )
-
   col_v1, col_v2 = st.columns(2)
   with col_v1:
     if st.button("❌ Cancelar", use_container_width=True):
@@ -81,19 +140,12 @@ def mostrar_popup_vaciar_db():
       db.vaciar_base_de_datos()
       if "df_unicas" in st.session_state:
         del st.session_state.df_unicas
-      st.session_state["pestana_activa"] = "📋 Confirmación de Carga Semestral"
       st.success("Base de datos vaciada correctamente.")
       st.rerun()
 
 
-# Evaluacion de Vigencia del Semestre al Iniciar
+# Evaluación de Vigencia del Semestre
 es_vigente, msj_vigencia, f_ini_db, f_fin_db = db.obtener_vigencia_semestre()
-
-if "pestana_activa" not in st.session_state:
-  if es_vigente:
-    st.session_state["pestana_activa"] = "📅 Consulta de Horarios"
-  else:
-    st.session_state["pestana_activa"] = "📋 Confirmación de Carga Semestral"
 
 st.title("🏫 Gestión de Aulas y Carga Semestral")
 
@@ -103,19 +155,19 @@ else:
   st.warning(f"⚠️ **Atención:** {msj_vigencia}")
 
 tab_horarios, tab_cargue, tab_eventos = st.tabs([
-    "📅 Consulta de Horarios",
+    "📅 Consulta de Horarios (Semanal)",
     "📋 Confirmación de Carga Semestral",
     "➕ Eventos y Cambios",
 ])
 
 # -----------------------------------------------------------------------------
-# TAB 1: CONSULTA DE HORARIOS (VISTA PRINCIPAL)
+# TAB 1: CONSULTA SEMANAL EN MATRIZ DE COLORES POR ASIGNATURA
 # -----------------------------------------------------------------------------
 with tab_horarios:
-  col_tit, col_btn = st.columns([3, 1])
-  with col_tit:
-    st.subheader("Consulta de Horarios Cargados")
-  with col_btn:
+  col_h1, col_h2 = st.columns([3, 1])
+  with col_h1:
+    st.subheader("📅 Horario Semanal por Aulas")
+  with col_h2:
     if st.button("🗑️ Vaciar Base de Datos", type="secondary"):
       mostrar_popup_vaciar_db()
 
@@ -123,39 +175,143 @@ with tab_horarios:
 
   if df_horarios.empty:
     st.info(
-        "La base de datos se encuentra vacía. Dirígete a **'Confirmación de"
-        " Carga Semestral'** para importar el periodo académico."
+        "La base de datos se encuentra vacía. Dirígete a la pestaña"
+        " **'Confirmación de Carga Semestral'** para importar el semestre."
     )
   else:
-    col1, col2 = st.columns(2)
-    s_filter = col1.selectbox(
-        "Filtrar por Salón / Aula:",
-        ["TODOS"] + sorted(df_horarios["espacio"].unique().tolist()),
-    )
-    d_filter = col2.date_input("Filtrar por Fecha Específica:", value=None)
+    # FILTROS DE BÚSQUEDA (SIN EL CAMPO DE SELECCIONAR SEMANA)
+    col_f1, col_f2, col_f3 = st.columns([3, 3, 3])
 
-    df_view = df_horarios.copy()
-    if s_filter != "TODOS":
-      df_view = df_view[df_view["espacio"] == s_filter]
-    if d_filter is not None:
-      df_view = df_view[df_view["fecha"] == d_filter.strftime("%Y-%m-%d")]
+    with col_f1:
+      salones_unicos = sorted([
+          str(s).upper() for s in df_horarios["espacio"].unique()
+      ])
+      salon_sel = st.selectbox(
+          "Filtrar por Salón / Aula:", ["TODOS"] + salones_unicos
+      )
 
-    st.dataframe(
-        df_view[[
-            "espacio",
-            "fecha",
-            "dia",
-            "hora_inicio",
-            "hora_fin",
-            "asignatura",
-            "docente",
-            "tipo_evento",
-        ]],
-        use_container_width=True,
+    with col_f2:
+      busqueda_asig = st.text_input(
+          "🔍 Buscar por Asignatura:", placeholder="Ej. programacion"
+      )
+
+    with col_f3:
+      busqueda_doc = st.text_input(
+          "👨‍🏫 Buscar por Docente:", placeholder="Ej. nicolas"
+      )
+
+    # Cálculo del Rango de la Semana Activa basada en la fecha actual
+    fecha_ref = datetime.date.today()
+    lunes_semana = fecha_ref - datetime.timedelta(days=fecha_ref.weekday())
+    sabado_semana = lunes_semana + datetime.timedelta(days=5)
+
+    # Filtrar datos por el rango semanal
+    df_filtered = df_horarios.copy()
+    df_filtered["fecha_dt"] = pd.to_datetime(df_filtered["fecha"]).dt.date
+    df_filtered = df_filtered[
+        (df_filtered["fecha_dt"] >= lunes_semana)
+        & (df_filtered["fecha_dt"] <= sabado_semana)
+    ]
+
+    if salon_sel != "TODOS":
+      df_filtered = df_filtered[
+          df_filtered["espacio"].apply(normalizar_texto)
+          == normalizar_texto(salon_sel)
+      ]
+
+    if busqueda_asig.strip():
+      q_asig = normalizar_texto(busqueda_asig)
+      df_filtered = df_filtered[
+          df_filtered["asignatura"].apply(normalizar_texto).str.contains(q_asig)
+      ]
+
+    if busqueda_doc.strip():
+      q_doc = normalizar_texto(busqueda_doc)
+      df_filtered = df_filtered[
+          df_filtered["docente"].apply(normalizar_texto).str.contains(q_doc)
+      ]
+
+    # Ocultar Sábado si no tiene clases
+    hay_clases_sabado = "sabado" in df_filtered["dia"].apply(
+        normalizar_texto
+    ).values or "sábado" in df_filtered["dia"].apply(normalizar_texto).values
+
+    if hay_clases_sabado:
+      dias_semana_nombres = [
+          "LUNES",
+          "MARTES",
+          "MIÉRCOLES",
+          "JUEVES",
+          "VIERNES",
+          "SÁBADO",
+      ]
+      fin_txt = f"{sabado_semana.strftime('%Y-%m-%d')} (Sábado)"
+    else:
+      dias_semana_nombres = ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES"]
+      viernes_semana = lunes_semana + datetime.timedelta(days=4)
+      fin_txt = f"{viernes_semana.strftime('%Y-%m-%d')} (Viernes)"
+
+    st.markdown(
+        f"##### 📆 **Semana Actual:** Del **{lunes_semana.strftime('%Y-%m-%d')}**"
+        f" (Lunes) al **{fin_txt}**"
     )
+
+    # RENDERIZADO DE MATRIZ SEMANAL
+    cols_dias = st.columns(len(dias_semana_nombres))
+
+    for idx_d, dia_nom in enumerate(dias_semana_nombres):
+      fecha_dia_actual = lunes_semana + datetime.timedelta(days=idx_d)
+      dia_norm = normalizar_texto(dia_nom)
+
+      with cols_dias[idx_d]:
+        st.markdown(
+            f"### {dia_nom}\n**{fecha_dia_actual.strftime('%d/%m')}**"
+        )
+        st.markdown("---")
+
+        clases_dia = df_filtered[
+            df_filtered["dia"].apply(normalizar_texto) == dia_norm
+        ].sort_values(by="hora_inicio")
+
+        if clases_dia.empty:
+          st.markdown(
+              """
+                        <div class="card-disponible">
+                            <div style="font-weight:700; font-size:0.85rem;">🟢 AULA DISPONIBLE</div>
+                            <div style="font-size:0.75rem; margin-top:2px;">Sin asignaturas</div>
+                        </div>
+                    """,
+              unsafe_allow_html=True,
+          )
+        else:
+          for _, c in clases_dia.iterrows():
+            es_evento = c["tipo_evento"].lower() == "evento"
+            asig_upper = str(c["asignatura"]).upper()
+            doc_upper = str(c["docente"]).upper()
+            salon_upper = str(c["espacio"]).upper()
+            h_ini = int(c["hora_inicio"])
+            h_fin = int(c["hora_fin"])
+
+            if es_evento:
+              style_card = ""
+              class_attr = "class-card class-card-evento"
+            else:
+              style_card = generar_estilo_color_materia(asig_upper)
+              class_attr = "class-card"
+
+            st.markdown(
+                f"""
+                        <div class="{class_attr}" style="{style_card}">
+                            <div class="class-time">⏰ {h_ini:02d}:00 - {h_fin:02d}:00 | {salon_upper}</div>
+                            <div class="class-title">{asig_upper}</div>
+                            <div class="class-doc">👨‍🏫 {doc_upper}</div>
+                        </div>
+                    """,
+                unsafe_allow_html=True,
+            )
 
 # -----------------------------------------------------------------------------
-# TAB 2: CONFIRMACIÓN DE CARGA SEMESTRAL (CON VALIDACIÓN DE ARCHIVO)
+# TAB 2: CONFIRMACIÓN DE CARGA SEMESTRAL
 # -----------------------------------------------------------------------------
 with tab_cargue:
   st.markdown("### 1️⃣ Paso 1: Configurar Fechas del Semestre")
@@ -179,10 +335,10 @@ with tab_cargue:
 
     if uploaded_file is not None:
       try:
-        # Validación de formato del archivo Excel
         st.session_state.df_unicas = controller.validar_y_procesar_excel(
             uploaded_file
         )
+
         df_edit = st.session_state.df_unicas[[
             "ESPACIO / SALÓN",
             "DÍA",
@@ -190,15 +346,14 @@ with tab_cargue:
             "HORA FIN (24H)",
             "ASIGNATURA",
             "DOCENTE",
-        ]]
+        ]].copy()
+        df_edit["ESPACIO / SALÓN"] = df_edit["ESPACIO / SALÓN"].str.upper()
+        df_edit["DÍA"] = df_edit["DÍA"].str.upper()
+        df_edit["ASIGNATURA"] = df_edit["ASIGNATURA"].str.upper()
+        df_edit["DOCENTE"] = df_edit["DOCENTE"].str.upper()
 
         st.markdown("---")
         st.markdown("### 3️⃣ Paso 3: Confirmar Oferta Académica")
-        st.info(
-            "💡 **Tip de Edición:** Al hacer clic sobre cualquier celda,"
-            " **toda la fila de la clase se resaltará** para guiarte en los"
-            " cambios."
-        )
 
         col_m1, col_m2, col_m3 = st.columns(3)
         col_m1.metric("📚 Clases a Programar", len(df_edit))
@@ -258,9 +413,6 @@ with tab_cargue:
                 f"• **{err['asignatura']}** ({err['salon']} - {err['dia']}):"
                 f" Horario {err['inicio']}:00 a {err['fin']}:00 hrs."
             )
-          st.error(
-              "⚠️ Modifica las horas en la tabla para habilitar el guardado."
-          )
         else:
           st.markdown("---")
           if st.button("🚀 Confirmar y Guardar Semestre", type="primary"):
