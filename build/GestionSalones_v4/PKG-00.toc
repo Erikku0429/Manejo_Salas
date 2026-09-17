@@ -1,5 +1,4 @@
-('C:\\Users\\Erick\\Desktop\\Proyecto Admin '
- 'Salones\\sistema_horarios\\build\\GestionSalones_v4\\GestionSalones_v4.pkg',
+('C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\GestionSalones_v4.pkg',
  {'BINARY': True,
   'DATA': True,
   'EXECUTABLE': True,
@@ -11,28 +10,22 @@
   'SYMLINK': False},
  [('pyi-contents-directory _internal', '', 'OPTION'),
   ('PYZ-00.pyz',
-   'C:\\Users\\Erick\\Desktop\\Proyecto Admin '
-   'Salones\\sistema_horarios\\build\\GestionSalones_v4\\PYZ-00.pyz',
+   'C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\PYZ-00.pyz',
    'PYZ'),
   ('struct',
-   'C:\\Users\\Erick\\Desktop\\Proyecto Admin '
-   'Salones\\sistema_horarios\\build\\GestionSalones_v4\\localpycs\\struct.pyc',
+   'C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\localpycs\\struct.pyc',
    'PYMODULE'),
   ('pyimod01_archive',
-   'C:\\Users\\Erick\\Desktop\\Proyecto Admin '
-   'Salones\\sistema_horarios\\build\\GestionSalones_v4\\localpycs\\pyimod01_archive.pyc',
+   'C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\localpycs\\pyimod01_archive.pyc',
    'PYMODULE'),
   ('pyimod02_importers',
-   'C:\\Users\\Erick\\Desktop\\Proyecto Admin '
-   'Salones\\sistema_horarios\\build\\GestionSalones_v4\\localpycs\\pyimod02_importers.pyc',
+   'C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\localpycs\\pyimod02_importers.pyc',
    'PYMODULE'),
   ('pyimod03_ctypes',
-   'C:\\Users\\Erick\\Desktop\\Proyecto Admin '
-   'Salones\\sistema_horarios\\build\\GestionSalones_v4\\localpycs\\pyimod03_ctypes.pyc',
+   'C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\localpycs\\pyimod03_ctypes.pyc',
    'PYMODULE'),
   ('pyimod04_pywin32',
-   'C:\\Users\\Erick\\Desktop\\Proyecto Admin '
-   'Salones\\sistema_horarios\\build\\GestionSalones_v4\\localpycs\\pyimod04_pywin32.pyc',
+   'C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\localpycs\\pyimod04_pywin32.pyc',
    'PYMODULE'),
   ('pyiboot01_bootstrap',
    'C:\\Users\\Erick\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\PyInstaller\\loader\\pyiboot01_bootstrap.py',
@@ -59,8 +52,7 @@
    'C:\\Users\\Erick\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks\\pyi_rth_traitlets.py',
    'PYSOURCE'),
   ('launch',
-   'C:\\Users\\Erick\\Desktop\\Proyecto Admin '
-   'Salones\\sistema_horarios\\launch.py',
+   'C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\launch.py',
    'PYSOURCE')],
  'python314.dll',
  True,

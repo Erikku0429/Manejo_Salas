@@ -20,7 +20,7 @@ class HorarioModel:
         'B222 (Salón posgrados)',
     ]
 
-  def _asegurar_columnas_extra(self, conn):
+  def _asegurar_tablas_y_columnas(self, conn):
     cursor = conn.cursor()
     cursor.execute('PRAGMA table_info(bloques)')
     cols = [column[1] for column in cursor.fetchall()]
@@ -30,7 +30,43 @@ class HorarioModel:
       )
     if 'motivo' not in cols:
       cursor.execute('ALTER TABLE bloques ADD COLUMN motivo TEXT DEFAULT ""')
+
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS configuracion_semestre (
+                id INTEGER PRIMARY KEY,
+                fecha_inicio TEXT,
+                fecha_fin TEXT
+            )
+        """)
     conn.commit()
+
+  def guardar_fechas_semestre(self, fecha_inicio_str, fecha_fin_str):
+    conn = sqlite3.connect(self.db_path)
+    self._asegurar_tablas_y_columnas(conn)
+    cursor = conn.cursor()
+    cursor.execute('DELETE FROM configuracion_semestre')
+    cursor.execute(
+        """
+            INSERT INTO configuracion_semestre (id, fecha_inicio, fecha_fin)
+            VALUES (1, ?, ?)
+        """,
+        (fecha_inicio_str, fecha_fin_str),
+    )
+    conn.commit()
+    conn.close()
+
+  def obtener_fechas_semestre(self):
+    if not os.path.exists(self.db_path):
+      return None, None
+    conn = sqlite3.connect(self.db_path)
+    self._asegurar_tablas_y_columnas(conn)
+    cursor = conn.cursor()
+    cursor.execute(
+        'SELECT fecha_inicio, fecha_fin FROM configuracion_semestre WHERE id=1'
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return (row[0], row[1]) if row else (None, None)
 
   def procesar_excel_a_db(self, file_source=None):
     source = file_source if file_source is not None else self.excel_path
@@ -138,7 +174,7 @@ class HorarioModel:
     os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
     conn = sqlite3.connect(self.db_path)
     df_clean.to_sql('bloques', conn, if_exists='replace', index=False)
-    self._asegurar_columnas_extra(conn)
+    self._asegurar_tablas_y_columnas(conn)
     conn.close()
     return len(df_clean[df_clean['estado'] == 'OCUPADO'])
 
@@ -150,7 +186,7 @@ class HorarioModel:
         return pd.DataFrame()
 
     conn = sqlite3.connect(self.db_path)
-    self._asegurar_columnas_extra(conn)
+    self._asegurar_tablas_y_columnas(conn)
     df = pd.read_sql('SELECT rowid as id, * FROM bloques', conn)
     conn.close()
     return df
@@ -167,7 +203,7 @@ class HorarioModel:
       motivo='',
   ):
     conn = sqlite3.connect(self.db_path)
-    self._asegurar_columnas_extra(conn)
+    self._asegurar_tablas_y_columnas(conn)
     cursor = conn.cursor()
 
     duracion = hora_fin - hora_inicio

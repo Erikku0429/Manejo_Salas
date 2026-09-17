@@ -1,106 +1,102 @@
-import os
-import sys
-import unicodedata
-
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-from models.horario_model import HorarioModel
-
-
-def normalizar_texto(texto):
-  if not texto or not isinstance(texto, str):
-    return ''
-  texto_norm = unicodedata.normalize('NFD', texto)
-  texto_sin_tildes = texto_norm.encode('ascii', 'ignore').decode('utf-8')
-  return texto_sin_tildes.lower().strip()
+import datetime
+import pandas as pd
 
 
 class HorarioController:
 
-  def __init__(self):
-    self.model = HorarioModel()
-    self.salones_disponibles = [
-        'E105 (Sala CAD)',
-        'B222 (Sala computadores)',
-        'B222 (Salón posgrados)',
+  def __init__(self, db_model):
+    self.db = db_model
+
+  def procesar_excel_cargue_unico(self, uploaded_file):
+    """Lee el Excel y extrae únicamente la oferta académica base semanal (sin repetición diaria)."""
+    df = pd.read_excel(uploaded_file, sheet_name='BD_Calendario_Semestre')
+
+    columnas_requeridas = [
+        'ESPACIO / SALÓN',
+        'DÍA',
+        'HORA INICIO (24H)',
+        'HORA FIN (24H)',
+        'ASIGNATURA',
+        'DOCENTE',
     ]
-    self.dias_semana = [
-        'LUNES',
-        'MARTES',
-        'MIÉRCOLES',
-        'JUEVES',
-        'VIERNES',
-        'SÁBADO',
-    ]
+    for col in columnas_requeridas:
+      if col not in df.columns:
+        raise ValueError(
+            f"El archivo no contiene la columna requerida: '{col}'"
+        )
 
-  def cargar_nuevo_excel(self, file_object):
-    return self.model.procesar_excel_a_db(file_source=file_object)
+    # Limpieza previa
+    df['ESPACIO / SALÓN'] = df['ESPACIO / SALÓN'].astype(str).str.upper().str.strip()
+    df['DÍA'] = df['DÍA'].astype(str).str.upper().str.strip()
+    df['ASIGNATURA'] = df['ASIGNATURA'].astype(str).str.upper().str.strip()
+    df['DOCENTE'] = df['DOCENTE'].astype(str).str.upper().str.strip()
+    df['HORA INICIO (24H)'] = pd.to_numeric(
+        df['HORA INICIO (24H)'], errors='coerce'
+    ).fillna(7)
+    df['HORA FIN (24H)'] = pd.to_numeric(
+        df['HORA FIN (24H)'], errors='coerce'
+    ).fillna(9)
 
-  def obtener_bloques_por_salon(self, salon_sel):
-    df_bloques = self.model.obtener_bloques()
-    if df_bloques.empty:
-      return df_bloques
-    return df_bloques[df_bloques['espacio'] == salon_sel].sort_values(
-        by=['dia', 'hora_inicio']
-    )
+    # DEDUPLICACIÓN: Mantiene únicamente la lista única de asignaturas semanales
+    df_unicas = df.drop_duplicates(
+        subset=['ESPACIO / SALÓN', 'DÍA', 'ASIGNATURA', 'DOCENTE']
+    ).copy()
+    return df_unicas.reset_index(drop=True)
 
-  def buscar_bloques_globales(self, termino_busqueda):
-    df_bloques = self.model.obtener_bloques()
-    if df_bloques.empty:
-      return df_bloques
+  def validar_rango_laboral(self, df_editado):
+    """Verifica que ninguna clase esté antes de las 07:00 o después de las 19:00."""
+    fuera_de_rango = []
+    for idx, row in df_editado.iterrows():
+      h_ini = row['HORA INICIO (24H)']
+      h_fin = row['HORA FIN (24H)']
 
-    busqueda_norm = normalizar_texto(termino_busqueda)
-    if not busqueda_norm:
-      return df_bloques
+      if h_ini < 7 or h_fin > 19 or h_ini >= h_fin:
+        fuera_de_rango.append({
+            'asignatura': row['ASIGNATURA'],
+            'salon': row['ESPACIO / SALÓN'],
+            'dia': row['DÍA'],
+            'inicio': h_ini,
+            'fin': h_fin,
+        })
+    return fuera_de_rango
 
-    def coincide_busqueda(row):
-      if row['estado'] == 'LIBRE':
-        return False
-      asig_norm = normalizar_texto(row['asignatura'])
-      doc_norm = normalizar_texto(row['docente'])
-      return (busqueda_norm in asig_norm) or (busqueda_norm in doc_norm)
-
-    mask = df_bloques.apply(coincide_busqueda, axis=1)
-    return df_bloques[mask].sort_values(by=['dia', 'hora_inicio'])
-
-  def verificar_traslape_evento(self, espacio, dia, hora_inicio, hora_fin):
-    """Retorna (es_libre, dataframe_conflictos)"""
-    df_bloques = self.model.obtener_bloques()
-    if df_bloques.empty:
-      return True, pd.DataFrame()
-
-    conflictos = df_bloques[
-        (df_bloques['espacio'] == espacio)
-        & (df_bloques['dia'] == dia)
-        & (df_bloques['estado'] == 'OCUPADO')
-        & (df_bloques['hora_inicio'] < hora_fin)
-        & (df_bloques['hora_fin'] > hora_inicio)
-    ]
-
-    return conflictos.empty, conflictos
-
-  def registrar_nuevo_evento(
-      self,
-      espacio,
-      dia,
-      hora_inicio,
-      hora_fin,
-      asignatura,
-      docente,
-      fecha_especifica='',
-      motivo='',
+  def proyectar_y_guardar_semestre(
+      self, df_oferta_confirmada, fecha_inicio, fecha_fin
   ):
-    if hora_fin <= hora_inicio:
-      raise ValueError('La hora de fin debe ser mayor a la hora de inicio.')
-    self.model.agregar_evento(
-        espacio,
-        dia,
-        hora_inicio,
-        hora_fin,
-        asignatura,
-        docente,
-        fecha_especifica,
-        motivo,
-    )
+    """Toma las clases semanales confirmadas y genera automáticamente el semestre en la BD."""
+    mapa_dias = {
+        0: 'LUNES',
+        1: 'MARTES',
+        2: 'MIÉRCOLES',
+        3: 'JUEVES',
+        4: 'VIERNES',
+        5: 'SÁBADO',
+        6: 'DOMINGO',
+    }
 
-  def eliminar_evento_existente(self, record_id):
-    self.model.eliminar_evento(record_id)
+    registros_diarios = []
+    curr_date = fecha_inicio
+
+    while curr_date <= fecha_fin:
+      dia_txt = mapa_dias.get(curr_date.weekday(), '')
+
+      # Filtrar clases que corresponden a este día de la semana
+      clases_dia = df_oferta_confirmada[df_oferta_confirmada['DÍA'] == dia_txt]
+
+      for _, row in clases_dia.iterrows():
+        registros_diarios.append({
+            'ESPACIO / SALÓN': row['ESPACIO / SALÓN'],
+            'FECHA': curr_date.strftime('%Y-%m-%d'),
+            'MES': curr_date.strftime('%B').upper(),
+            'DÍA NUM': curr_date.day,
+            'DÍA': dia_txt,
+            'HORA INICIO (24H)': int(row['HORA INICIO (24H)']),
+            'HORA FIN (24H)': int(row['HORA FIN (24H)']),
+            'ASIGNATURA': row['ASIGNATURA'],
+            'DOCENTE': row['DOCENTE'],
+        })
+
+      curr_date += datetime.timedelta(days=1)
+
+    df_semestre_completo = pd.DataFrame(registros_diarios)
+    self.db.guardar_carga_semestral(df_semestre_completo)

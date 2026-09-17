@@ -1,3 +1,4 @@
+import datetime
 import os
 import sys
 import unicodedata
@@ -12,6 +13,17 @@ def normalizar_texto(texto):
   texto_norm = unicodedata.normalize('NFD', texto)
   texto_sin_tildes = texto_norm.encode('ascii', 'ignore').decode('utf-8')
   return texto_sin_tildes.lower().strip()
+
+
+MAPA_DIAS_ESP = {
+    0: 'LUNES',
+    1: 'MARTES',
+    2: 'MIÉRCOLES',
+    3: 'JUEVES',
+    4: 'VIERNES',
+    5: 'SÁBADO',
+    6: 'DOMINGO',
+}
 
 
 class HorarioController:
@@ -35,15 +47,54 @@ class HorarioController:
   def cargar_nuevo_excel(self, file_object):
     return self.model.procesar_excel_a_db(file_source=file_object)
 
-  def obtener_bloques_por_salon(self, salon_sel):
-    df_bloques = self.model.obtener_bloques()
-    if df_bloques.empty:
-      return df_bloques
-    return df_bloques[df_bloques['espacio'] == salon_sel].sort_values(
-        by=['dia', 'hora_inicio']
+  def obtener_dia_semana_texto(self, fecha_dt):
+    return MAPA_DIAS_ESP.get(fecha_dt.weekday(), 'LUNES')
+
+  def obtener_bloques_por_fecha_y_salon(self, fecha_dt, salon_sel):
+    df_todos = self.model.obtener_bloques()
+    if df_todos.empty:
+      return df_todos
+
+    dia_nombre = self.obtener_dia_semana_texto(fecha_dt)
+    fecha_str = fecha_dt.strftime('%Y-%m-%d')
+
+    # Filtrar bloques del salón para ese día de la semana
+    df_salon = df_todos[
+        (df_todos['espacio'] == salon_sel) & (df_todos['dia'] == dia_nombre)
+    ].copy()
+
+    # Si hay eventos específicos para esa fecha, aplicarlos/priorizarlos
+    df_eventos_fecha = df_todos[
+        (df_todos['espacio'] == salon_sel)
+        & (df_todos['fecha_especifica'] == fecha_str)
+    ]
+
+    if not df_eventos_fecha.empty:
+      # Eliminar o sobreescribir los que entren en conflicto
+      for _, evt in df_eventos_fecha.iterrows():
+        hi, hf = evt['hora_inicio'], evt['hora_fin']
+        mask_conflicto = (df_salon['hora_inicio'] < hf) & (
+            df_salon['hora_fin'] > hi
+        )
+        df_salon = df_salon[~mask_conflicto]
+
+      # Concatenar eventos específicos
+      df_salon = pd.concat([df_salon, df_eventos_fecha], ignore_index=True)
+
+    return df_salon.sort_values(by=['hora_inicio'])
+
+  def obtener_eventos_especiales_del_dia(self, fecha_dt):
+    """Devuelve los eventos agendados específicamente para la fecha seleccionada."""
+    df_todos = self.model.obtener_bloques()
+    if df_todos.empty or 'fecha_especifica' not in df_todos.columns:
+      return pd.DataFrame()
+
+    fecha_str = fecha_dt.strftime('%Y-%m-%d')
+    return df_todos[df_todos['fecha_especifica'] == fecha_str].sort_values(
+        by=['espacio', 'hora_inicio']
     )
 
-  def buscar_bloques_globales(self, termino_busqueda):
+  def buscar_bloques_globales(self, termino_busqueda, fecha_dt):
     df_bloques = self.model.obtener_bloques()
     if df_bloques.empty:
       return df_bloques
@@ -63,7 +114,6 @@ class HorarioController:
     return df_bloques[mask].sort_values(by=['dia', 'hora_inicio'])
 
   def verificar_traslape_evento(self, espacio, dia, hora_inicio, hora_fin):
-    """Retorna (es_libre, dataframe_conflictos)"""
     df_bloques = self.model.obtener_bloques()
     if df_bloques.empty:
       return True, pd.DataFrame()

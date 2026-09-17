@@ -1,5 +1,4 @@
-('C:\\Users\\Erick\\Desktop\\Proyecto Admin '
- 'Salones\\sistema_horarios\\build\\GestionSalones_v4\\PYZ-00.pyz',
+('C:\\Users\\Erick\\Documents\\GitHub\\Manejo_Salas\\build\\GestionSalones_v4\\PYZ-00.pyz',
  [('IPython',
    'C:\\Users\\Erick\\AppData\\Local\\Python\\pythoncore-3.14-64\\Lib\\site-packages\\IPython\\__init__.py',
    'PYMODULE'),

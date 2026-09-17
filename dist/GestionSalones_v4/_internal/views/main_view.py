@@ -40,7 +40,6 @@ def mostrar_popup_exito(n_bloques):
     st.rerun()
 
 
-# POPUP: Confirmar o Forzar Reserva si hay traslape
 @st.dialog('📋 Validación de Disponibilidad')
 def mostrar_popup_validacion_reserva(
     controller, datos_evento, es_libre, conflictos
@@ -73,17 +72,16 @@ def mostrar_popup_validacion_reserva(
       )
 
     st.warning(
-        '⚠️ **Asignación Temporal / Sobreescritura requerida**\nPara apartar este'
-        ' espacio a pesar del conflicto, debes indicar la fecha de la reserva y'
-        ' la justificación.'
+        '⚠️ **Asignación Temporal / Sobreescritura requerida**\nIndica la fecha'
+        ' y motivo del apartado.'
     )
 
     fecha_reserva = st.date_input(
-        '📅 Fecha de apartado temporal:', min_value=datetime.date.today()
+        '📅 Fecha del apartado temporal:', min_value=datetime.date.today()
     )
     motivo = st.text_area(
         '📝 Motivo / Justificación del apartado:',
-        placeholder='Ej. Práctica de laboratorio especial, evento institucional...',
+        placeholder='Ej. Práctica especial, examen departamental...',
     )
 
     if st.button('⚠️ Asignar Temporalmente', use_container_width=True):
@@ -129,24 +127,57 @@ class MainView:
       mostrar_popup_carga_inicial(self.controller)
       return
 
-    st.sidebar.title('🏢 Perfil de Acceso')
-    perfil = st.sidebar.radio(
-        'Selecciona tu perfil:',
-        ['👤 Usuario (Consulta)', '🔐 Administrador'],
+    es_modo_publico = os.environ.get('PUBLIC_MODE', '0') == '1'
+
+    # --------------------------------------------------
+    # SECCIÓN LATERAL (SIDEBAR): SELECTOR DE FECHA Y FEED DE EVENTOS
+    # --------------------------------------------------
+    st.sidebar.title('📅 Fecha de Consulta')
+    fecha_sel = st.sidebar.date_input(
+        'Selecciona una fecha:', value=datetime.date.today()
+    )
+
+    dia_nombre_txt = self.controller.obtener_dia_semana_texto(fecha_sel)
+    st.sidebar.caption(
+        f'📆 **Día:** {dia_nombre_txt} ({fecha_sel.strftime("%d/%m/%Y")})'
     )
 
     st.sidebar.divider()
 
-    if perfil == '👤 Usuario (Consulta)':
-      self._render_vista_usuario()
-    else:
-      self._render_vista_admin()
+    # Feed lateral de Eventos Especiales de la Fecha
+    st.sidebar.subheader('⚡ Eventos Específicos del Día')
+    df_evts_dia = self.controller.obtener_eventos_especiales_del_dia(fecha_sel)
 
-  def _render_vista_usuario(self):
-    st.title('🏫 Disponibilidad y Horarios por Bloques')
-    st.markdown(
-        'Consulta por salón o realiza una **búsqueda global de docentes y'
-        ' asignaturas**.'
+    if not df_evts_dia.empty:
+      for _, e in df_evts_dia.iterrows():
+        st.sidebar.info(
+            f"📍 **{e['espacio']}**\n\n"
+            f"🕒 **{e['franja_horaria']}**: {e['asignatura']}\n\n"
+            f"👨‍🏫 *{e['docente']}*\n\n"
+            f"📝 Motivo: {e['motivo']}"
+        )
+    else:
+      st.sidebar.caption('No hay reservas especiales registradas para esta fecha.')
+
+    st.sidebar.divider()
+
+    if es_modo_publico:
+      self._render_vista_usuario(fecha_sel)
+    else:
+      perfil = st.sidebar.radio(
+          'Perfil:', ['👤 Usuario (Consulta)', '🔐 Administrador']
+      )
+      st.sidebar.divider()
+      if perfil == '👤 Usuario (Consulta)':
+        self._render_vista_usuario(fecha_sel)
+      else:
+        self._render_vista_admin()
+
+  def _render_vista_usuario(self, fecha_sel):
+    dia_nombre_txt = self.controller.obtener_dia_semana_texto(fecha_sel)
+    st.title(
+        f'🏫 Disponibilidad de Aulas — {dia_nombre_txt}'
+        f' ({fecha_sel.strftime("%d/%m/%Y")})'
     )
 
     col_sal, col_bus = st.columns([1, 2])
@@ -165,12 +196,14 @@ class MainView:
       )
 
     if busqueda:
-      df_bloques = self.controller.buscar_bloques_globales(busqueda)
+      df_bloques = self.controller.buscar_bloques_globales(busqueda, fecha_sel)
       if df_bloques.empty:
         st.warning(f'No se encontraron clases coincidentes con "{busqueda}".')
         return
     else:
-      df_bloques = self.controller.obtener_bloques_por_salon(salon_sel)
+      df_bloques = self.controller.obtener_bloques_por_fecha_y_salon(
+          fecha_sel, salon_sel
+      )
 
     if not df_bloques.empty:
       st.markdown(
@@ -229,51 +262,33 @@ class MainView:
           unsafe_allow_html=True,
       )
 
-      dias_presentes = [
-          d for d in self.controller.dias_semana if d in df_bloques['dia'].unique()
-      ]
-      cols = st.columns(len(dias_presentes))
-
-      for idx, dia in enumerate(dias_presentes):
-        with cols[idx]:
-          st.subheader(f'📅 {dia}')
-          bloques_dia = df_bloques[df_bloques['dia'] == dia]
-
-          for _, b in bloques_dia.iterrows():
-            if b.get('estado') == 'LIBRE':
-              st.markdown(
-                  f"""
-                                <div class="block-card-libre">
-                                    <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
-                                    🟢 <b>AULA DISPONIBLE</b>
-                                </div>
-                                """,
-                  unsafe_allow_html=True,
-              )
-            else:
-              fecha_lbl = (
-                  f"<br><small>📅 {b['fecha_especifica']}</small>"
-                  if b.get('fecha_especifica')
-                  else ''
-              )
-              motivo_lbl = (
-                  f"<br><small>📝 {b['motivo']}</small>"
-                  if b.get('motivo')
-                  else ''
-              )
-
-              st.markdown(
-                  f"""
-                                <div class="block-card-ocupado">
-                                    <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
-                                    ⚡ <b>{b['asignatura']}</b><br>
-                                    <small>👨‍🏫 {b['docente']}</small>
-                                    {fecha_lbl}{motivo_lbl}<br>
-                                    <span class="room-badge">📍 {b['espacio']}</span>
-                                </div>
-                                """,
-                  unsafe_allow_html=True,
-              )
+      for _, b in df_bloques.iterrows():
+        if b.get('estado') == 'LIBRE':
+          st.markdown(
+              f"""
+                        <div class="block-card-libre">
+                            <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
+                            🟢 <b>AULA DISPONIBLE</b>
+                        </div>
+                        """,
+              unsafe_allow_html=True,
+          )
+        else:
+          motivo_lbl = (
+              f"<br><small>📝 {b['motivo']}</small>" if b.get('motivo') else ''
+          )
+          st.markdown(
+              f"""
+                        <div class="block-card-ocupado">
+                            <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
+                            ⚡ <b>{b['asignatura']}</b><br>
+                            <small>👨‍🏫 {b['docente']}</small>
+                            {motivo_lbl}<br>
+                            <span class="room-badge">📍 {b['espacio']}</span>
+                        </div>
+                        """,
+              unsafe_allow_html=True,
+          )
 
   def _render_vista_admin(self):
     st.title('🔐 Panel de Administración y Gestión de Eventos')
@@ -338,7 +353,6 @@ class MainView:
                     espacio, dia, h_inicio, h_fin
                 )
             )
-            # Lanzar Popup de Validación
             mostrar_popup_validacion_reserva(
                 self.controller, datos_evt, es_libre, conflictos
             )

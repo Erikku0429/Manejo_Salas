@@ -40,7 +40,6 @@ def mostrar_popup_exito(n_bloques):
     st.rerun()
 
 
-# POPUP: Confirmar o Forzar Reserva si hay traslape
 @st.dialog('📋 Validación de Disponibilidad')
 def mostrar_popup_validacion_reserva(
     controller, datos_evento, es_libre, conflictos
@@ -72,18 +71,14 @@ def mostrar_popup_validacion_reserva(
           f'• ⚡ **{c["asignatura"]}** ({c["docente"]}) — {c["franja_horaria"]}'
       )
 
-    st.warning(
-        '⚠️ **Asignación Temporal / Sobreescritura requerida**\nPara apartar este'
-        ' espacio a pesar del conflicto, debes indicar la fecha de la reserva y'
-        ' la justificación.'
-    )
+    st.warning('⚠️ **Asignación Temporal / Sobreescritura requerida**')
 
     fecha_reserva = st.date_input(
-        '📅 Fecha de apartado temporal:', min_value=datetime.date.today()
+        '📅 Fecha del apartado temporal:', min_value=datetime.date.today()
     )
     motivo = st.text_area(
         '📝 Motivo / Justificación del apartado:',
-        placeholder='Ej. Práctica de laboratorio especial, evento institucional...',
+        placeholder='Ej. Práctica especial, examen departamental...',
     )
 
     if st.button('⚠️ Asignar Temporalmente', use_container_width=True):
@@ -129,25 +124,73 @@ class MainView:
       mostrar_popup_carga_inicial(self.controller)
       return
 
-    st.sidebar.title('🏢 Perfil de Acceso')
-    perfil = st.sidebar.radio(
-        'Selecciona tu perfil:',
-        ['👤 Usuario (Consulta)', '🔐 Administrador'],
+    es_modo_publico = os.environ.get('PUBLIC_MODE', '0') == '1'
+
+    # SIDEBAR: Rango del Semestre y Selector de Fecha
+    st.sidebar.title('📅 Calendario Académico')
+    f_ini_sem, f_fin_sem = self.controller.obtener_rango_semestre()
+
+    if f_ini_sem and f_fin_sem:
+      st.sidebar.caption(
+          f'🎓 **Semestre Activo:**\n{f_ini_sem.strftime("%d/%m/%Y")} al'
+          f' {f_fin_sem.strftime("%d/%m/%Y")}'
+      )
+    else:
+      st.sidebar.warning('⚠️ Sin fechas de semestre configuradas.')
+
+    fecha_sel = st.sidebar.date_input(
+        'Selecciona una fecha de consulta:', value=datetime.date.today()
+    )
+    dia_nombre_txt = self.controller.obtener_dia_semana_texto(fecha_sel)
+    st.sidebar.markdown(
+        f'📆 **Día:** `{dia_nombre_txt}` ({fecha_sel.strftime("%d/%m/%Y")})'
     )
 
     st.sidebar.divider()
 
-    if perfil == '👤 Usuario (Consulta)':
-      self._render_vista_usuario()
-    else:
-      self._render_vista_admin()
+    # Feed lateral de Eventos Especiales
+    st.sidebar.subheader('⚡ Reservas / Eventos del Día')
+    df_evts_dia = self.controller.obtener_eventos_especiales_del_dia(fecha_sel)
 
-  def _render_vista_usuario(self):
-    st.title('🏫 Disponibilidad y Horarios por Bloques')
-    st.markdown(
-        'Consulta por salón o realiza una **búsqueda global de docentes y'
-        ' asignaturas**.'
+    if not df_evts_dia.empty:
+      for _, e in df_evts_dia.iterrows():
+        st.sidebar.info(
+            f"📍 **{e['espacio']}**\n\n"
+            f"🕒 **{e['franja_horaria']}**: {e['asignatura']}\n\n"
+            f"👨‍🏫 *{e['docente']}*\n\n"
+            f"📝 Motivo: {e['motivo']}"
+        )
+    else:
+      st.sidebar.caption('No hay reservas especiales para esta fecha.')
+
+    st.sidebar.divider()
+
+    if es_modo_publico:
+      self._render_vista_usuario(fecha_sel)
+    else:
+      perfil = st.sidebar.radio(
+          'Perfil:', ['👤 Usuario (Consulta)', '🔐 Administrador']
+      )
+      st.sidebar.divider()
+      if perfil == '👤 Usuario (Consulta)':
+        self._render_vista_usuario(fecha_sel)
+      else:
+        self._render_vista_admin()
+
+  def _render_vista_usuario(self, fecha_sel):
+    dia_nombre_txt = self.controller.obtener_dia_semana_texto(fecha_sel)
+    st.title('🏫 Portal de Consulta de Espacios DTE')
+
+    modo_vista = st.radio(
+        'Selecciona la perspectiva de visualización:',
+        [
+            f'📆 Vista Diaria ({dia_nombre_txt} {fecha_sel.strftime("%d/%m")})',
+            '🗓️ Vista Semanal General (Lunes - Sábado)',
+        ],
+        horizontal=True,
     )
+
+    st.divider()
 
     col_sal, col_bus = st.columns([1, 2])
 
@@ -164,114 +207,160 @@ class MainView:
           disabled=bool(busqueda),
       )
 
-    if busqueda:
-      df_bloques = self.controller.buscar_bloques_globales(busqueda)
-      if df_bloques.empty:
-        st.warning(f'No se encontraron clases coincidentes con "{busqueda}".')
-        return
-    else:
-      df_bloques = self.controller.obtener_bloques_por_salon(salon_sel)
+    st.markdown(
+        """
+        <style>
+        @keyframes energyWave {
+            0% { box-shadow: 0 0 4px rgba(255, 136, 51, 0.3); border-color: #ff8833; }
+            50% { box-shadow: 0 0 12px rgba(255, 170, 85, 0.7); border-color: #ffaa55; }
+            100% { box-shadow: 0 0 4px rgba(255, 136, 51, 0.3); border-color: #ff8833; }
+        }
+        @keyframes shieldGlow {
+            0% { box-shadow: 0 0 4px rgba(0, 255, 136, 0.3); }
+            50% { box-shadow: 0 0 12px rgba(0, 255, 136, 0.8); }
+            100% { box-shadow: 0 0 4px rgba(0, 255, 136, 0.3); }
+        }
+        .block-card-libre {
+            background-color: #052216;
+            color: #00ffaa;
+            border: 1.5px solid #00ff88;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            min-height: 125px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            animation: shieldGlow 2.5s infinite ease-in-out;
+        }
+        .block-card-ocupado {
+            background: linear-gradient(135deg, #2b1a12 0%, #3d2215 100%);
+            color: #ffe3d1;
+            border: 1.5px solid #ff8833;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            min-height: 125px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            text-align: center;
+            animation: energyWave 3s infinite ease-in-out;
+        }
+        .room-badge {
+            background-color: rgba(255, 255, 255, 0.15);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            margin-top: 4px;
+            display: inline-block;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    if not df_bloques.empty:
-      st.markdown(
-          """
-            <style>
-            @keyframes energyWave {
-                0% { box-shadow: 0 0 4px rgba(255, 136, 51, 0.3); border-color: #ff8833; }
-                50% { box-shadow: 0 0 12px rgba(255, 170, 85, 0.7); border-color: #ffaa55; }
-                100% { box-shadow: 0 0 4px rgba(255, 136, 51, 0.3); border-color: #ff8833; }
-            }
-            @keyframes shieldGlow {
-                0% { box-shadow: 0 0 4px rgba(0, 255, 136, 0.3); }
-                50% { box-shadow: 0 0 12px rgba(0, 255, 136, 0.8); }
-                100% { box-shadow: 0 0 4px rgba(0, 255, 136, 0.3); }
-            }
-            .block-card-libre {
-                background-color: #052216;
-                color: #00ffaa;
-                border: 1.5px solid #00ff88;
-                border-radius: 8px;
-                padding: 10px;
-                margin-bottom: 10px;
-                min-height: 125px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                text-align: center;
-                animation: shieldGlow 2.5s infinite ease-in-out;
-            }
-            .block-card-ocupado {
-                background: linear-gradient(135deg, #2b1a12 0%, #3d2215 100%);
-                color: #ffe3d1;
-                border: 1.5px solid #ff8833;
-                border-radius: 8px;
-                padding: 10px;
-                margin-bottom: 10px;
-                min-height: 125px;
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                align-items: center;
-                text-align: center;
-                animation: energyWave 3s infinite ease-in-out;
-            }
-            .room-badge {
-                background-color: rgba(255, 255, 255, 0.15);
-                padding: 2px 6px;
-                border-radius: 4px;
-                font-size: 0.75rem;
-                margin-top: 4px;
-                display: inline-block;
-            }
-            </style>
-            """,
-          unsafe_allow_html=True,
-      )
+    if '📆 Vista Diaria' in modo_vista:
+      if not self.controller.esta_en_rango_semestre(fecha_sel):
+        st.warning(
+            '🌴 **Fecha fuera del período de clases regulares (Receso'
+            ' Académico)**. Se muestran únicamente las reservas especiales'
+            ' registradas.'
+        )
+
+      if busqueda:
+        df_bloques = self.controller.buscar_bloques_globales(
+            busqueda, fecha_sel
+        )
+      else:
+        df_bloques = self.controller.obtener_bloques_por_fecha_y_salon(
+            fecha_sel, salon_sel
+        )
+
+      if df_bloques.empty:
+        st.warning('No se encontraron clases o bloques configurados.')
+        return
+
+      for _, b in df_bloques.iterrows():
+        if b.get('estado') == 'LIBRE':
+          st.markdown(
+              f"""
+                    <div class="block-card-libre">
+                        <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
+                        🟢 <b>AULA DISPONIBLE</b>
+                    </div>
+                    """,
+              unsafe_allow_html=True,
+          )
+        else:
+          motivo_lbl = (
+              f"<br><small>📝 {b['motivo']}</small>" if b.get('motivo') else ''
+          )
+          st.markdown(
+              f"""
+                    <div class="block-card-ocupado">
+                        <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
+                        ⚡ <b>{b['asignatura']}</b><br>
+                        <small>👨‍🏫 {b['docente']}</small>
+                        {motivo_lbl}<br>
+                        <span class="room-badge">📍 {b['espacio']}</span>
+                    </div>
+                    """,
+              unsafe_allow_html=True,
+          )
+
+    else:
+      st.subheader(f'🗓️ Programación Semanal General — {salon_sel}')
+
+      if busqueda:
+        df_semana = self.controller.buscar_bloques_globales(
+            busqueda, fecha_sel
+        )
+      else:
+        df_semana = self.controller.obtener_bloques_por_salon(salon_sel)
+
+      if df_semana.empty:
+        st.warning('No hay datos registrados para la vista semanal.')
+        return
 
       dias_presentes = [
-          d for d in self.controller.dias_semana if d in df_bloques['dia'].unique()
+          d
+          for d in self.controller.dias_semana
+          if d in df_semana['dia'].unique()
       ]
       cols = st.columns(len(dias_presentes))
 
       for idx, dia in enumerate(dias_presentes):
         with cols[idx]:
-          st.subheader(f'📅 {dia}')
-          bloques_dia = df_bloques[df_bloques['dia'] == dia]
+          st.markdown(f'### 📅 {dia}')
+          bloques_dia = df_semana[df_semana['dia'] == dia].sort_values(
+              by=['hora_inicio']
+          )
 
           for _, b in bloques_dia.iterrows():
             if b.get('estado') == 'LIBRE':
               st.markdown(
                   f"""
-                                <div class="block-card-libre">
-                                    <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
-                                    🟢 <b>AULA DISPONIBLE</b>
-                                </div>
-                                """,
+                            <div class="block-card-libre">
+                                <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
+                                🟢 <b>AULA DISPONIBLE</b>
+                            </div>
+                            """,
                   unsafe_allow_html=True,
               )
             else:
-              fecha_lbl = (
-                  f"<br><small>📅 {b['fecha_especifica']}</small>"
-                  if b.get('fecha_especifica')
-                  else ''
-              )
-              motivo_lbl = (
-                  f"<br><small>📝 {b['motivo']}</small>"
-                  if b.get('motivo')
-                  else ''
-              )
-
               st.markdown(
                   f"""
-                                <div class="block-card-ocupado">
-                                    <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
-                                    ⚡ <b>{b['asignatura']}</b><br>
-                                    <small>👨‍🏫 {b['docente']}</small>
-                                    {fecha_lbl}{motivo_lbl}<br>
-                                    <span class="room-badge">📍 {b['espacio']}</span>
-                                </div>
-                                """,
+                            <div class="block-card-ocupado">
+                                <b>🕒 {b['franja_horaria']}</b> ({b['duracion_horas']}h)<br>
+                                ⚡ <b>{b['asignatura']}</b><br>
+                                <small>👨‍🏫 {b['docente']}</small><br>
+                                <span class="room-badge">📍 {b['espacio']}</span>
+                            </div>
+                            """,
                   unsafe_allow_html=True,
               )
 
@@ -285,13 +374,41 @@ class MainView:
     if password == '1234':
       st.success('Acceso Autorizado')
 
-      tab1, tab2, tab3 = st.tabs([
+      tab1, tab2, tab3, tab4 = st.tabs([
+          '🎓 Vigencia del Semestre',
           '➕ Añadir Evento / Reserva',
           '✏️ Eliminar Clases / Eventos',
           '📥 Cargar Semestre Excel',
       ])
 
       with tab1:
+        st.subheader('📆 Configurar Fechas de Inicio y Culminación del Semestre')
+        f_ini_act, f_fin_act = self.controller.obtener_rango_semestre()
+
+        default_ini = f_ini_act if f_ini_act else datetime.date.today()
+        default_fin = (
+            f_fin_act
+            if f_fin_act
+            else datetime.date.today() + datetime.timedelta(days=120)
+        )
+
+        col_f1, col_f2 = st.columns(2)
+        with col_f1:
+          f_inicio = st.date_input('Inicio de Clases (Mes/Día):', value=default_ini)
+        with col_f2:
+          f_culminacion = st.date_input(
+              'Culminación de Clases (Mes/Día):', value=default_fin
+          )
+
+        if st.button('💾 Guardar Rango del Semestre', use_container_width=True):
+          try:
+            self.controller.guardar_rango_semestre(f_inicio, f_culminacion)
+            st.success('¡Período del semestre actualizado con éxito!')
+            st.rerun()
+          except Exception as e:
+            st.error(f'Error al guardar fechas: {e}')
+
+      with tab2:
         st.subheader('📌 Agendar Nuevo Evento o Reserva')
         col1, col2 = st.columns(2)
 
@@ -338,12 +455,11 @@ class MainView:
                     espacio, dia, h_inicio, h_fin
                 )
             )
-            # Lanzar Popup de Validación
             mostrar_popup_validacion_reserva(
                 self.controller, datos_evt, es_libre, conflictos
             )
 
-      with tab2:
+      with tab3:
         st.subheader('🗑️ Gestionar y Eliminar Registros')
         df_todos = self.controller.model.obtener_bloques()
         df_ocupados = df_todos[df_todos['estado'] == 'OCUPADO']
@@ -368,7 +484,7 @@ class MainView:
         else:
           st.info('No hay eventos u ocupaciones registradas.')
 
-      with tab3:
+      with tab4:
         st.subheader('⚙️ Cargar Nuevo Semestre Académico desde Excel')
         archivo_cargado = st.file_uploader(
             'Selecciona el archivo Excel (.xlsx):', type=['xlsx', 'xls']
