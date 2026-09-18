@@ -45,7 +45,6 @@ def generar_estilo_color_materia(nombre_asignatura):
   )
 
 
-# Función Callback para Resetear Filtros sin Violación de Estado en Streamlit
 def resetear_filtros_callback():
   st.session_state["input_asig"] = ""
   st.session_state["input_doc"] = ""
@@ -167,6 +166,16 @@ st.markdown(
         opacity: 0.9;
     }
 
+    .event-agenda-card {
+        background: linear-gradient(135deg, #2e1005 0%, #170701 100%);
+        border: 1px solid #78350f;
+        border-left: 5px solid #f59e0b;
+        border-radius: 8px;
+        padding: 14px;
+        margin-bottom: 14px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+    }
+
     .excel-template-box {
         background-color: rgba(255, 255, 255, 0.04);
         border: 2px dashed #8b5cf6;
@@ -275,14 +284,23 @@ st.markdown("---")
 if st.session_state.authenticated:
   tabs = st.tabs([
       "📅 Consulta de Horarios (Público / QR)",
+      "📢 Próximos Eventos",
       "📋 Confirmación de Carga Semestral (Admin)",
       "➕ Eventos y Cambios (Admin)",
   ])
-  tab_horarios, tab_cargue, tab_eventos = tabs[0], tabs[1], tabs[2]
+  tab_horarios, tab_eventos_pub, tab_cargue, tab_eventos_adm = (
+      tabs[0],
+      tabs[1],
+      tabs[2],
+      tabs[3],
+  )
 else:
-  tabs = st.tabs(["📅 Consulta de Horarios (Público / QR)"])
-  tab_horarios = tabs[0]
-  tab_cargue, tab_eventos = None, None
+  tabs = st.tabs([
+      "📅 Consulta de Horarios (Público / QR)",
+      "📢 Próximos Eventos",
+  ])
+  tab_horarios, tab_eventos_pub = tabs[0], tabs[1]
+  tab_cargue, tab_eventos_adm = None, None
 
 
 # -----------------------------------------------------------------------------
@@ -429,7 +447,7 @@ def renderizar_matriz_semanal_aula(
 
 
 # -----------------------------------------------------------------------------
-# TAB 1: CONSULTA DE HORARIOS PÚBLICA CON FILTROS AVANZADOS
+# TAB 1: CONSULTA DE HORARIOS PÚBLICA
 # -----------------------------------------------------------------------------
 with tab_horarios:
   col_h1, col_h2 = st.columns([3, 1])
@@ -448,7 +466,12 @@ with tab_horarios:
         " cargue del semestre."
     )
   else:
-    # Inicializar valores en session_state ANTES de crear los widgets
+    salones_unicos = sorted([
+        str(s).upper()
+        for s in df_horarios["espacio"].unique()
+        if pd.notna(s) and str(s).strip()
+    ])
+
     if "input_asig" not in st.session_state:
       st.session_state["input_asig"] = ""
     if "input_doc" not in st.session_state:
@@ -459,10 +482,6 @@ with tab_horarios:
       st.session_state["input_horas"] = (7, 19)
 
     col_f1, col_f2, col_f3, col_f4 = st.columns([3, 3, 3, 2])
-
-    salones_unicos = sorted(
-        [str(s).upper() for s in df_horarios["espacio"].unique()]
-    )
 
     with col_f1:
       salon_sel = st.selectbox(
@@ -527,7 +546,6 @@ with tab_horarios:
         q_asig.strip() or q_doc.strip()
     ) and not solo_disponibles
 
-    # Filtrado exacto / parcial sin residuo
     if hay_busqueda_activa:
       if q_asig.strip():
         df_filtered = df_filtered[
@@ -644,7 +662,93 @@ with tab_horarios:
         )
 
 # -----------------------------------------------------------------------------
-# TAB 2 & 3: ADMINISTRACIÓN
+# TAB 2: PRÓXIMOS EVENTOS (PÚBLICO - AGENDA DE EVENTOS ESPECIALES)
+# -----------------------------------------------------------------------------
+with tab_eventos_pub:
+  st.subheader("📢 Agenda de Eventos y Reservas Especiales")
+
+  df_todos = db.obtener_todos_los_horarios()
+
+  if df_todos.empty:
+    st.info("No hay eventos ni programaciones registradas en el sistema.")
+  else:
+    # Filtrar únicamente registros etiquetados como evento
+    df_ev = df_todos[
+        df_todos["tipo_evento"].apply(lambda x: str(x).lower()) == "evento"
+    ].copy()
+
+    if df_ev.empty:
+      st.info("🟢 No hay eventos programados actualmente.")
+    else:
+      df_ev["fecha_dt"] = pd.to_datetime(df_ev["fecha"]).dt.date
+      fecha_hoy_ev = datetime.date.today()
+
+      # Opciones de filtro
+      col_e1, col_e2 = st.columns([2, 2])
+      with col_e1:
+        filtro_rango_ev = st.radio(
+            "Ver eventos:",
+            ["A partir de Hoy", "Todos los del Semestre"],
+            horizontal=True,
+        )
+      with col_e2:
+        salones_ev = ["TODOS"] + sorted(
+            [str(s).upper() for s in df_ev["espacio"].unique()]
+        )
+        salon_ev_sel = st.selectbox("Filtrar por Salón:", salones_ev)
+
+      if filtro_rango_ev == "A partir de Hoy":
+        df_ev = df_ev[df_ev["fecha_dt"] >= fecha_hoy_ev]
+
+      if salon_ev_sel != "TODOS":
+        df_ev = df_ev[
+            df_ev["espacio"].apply(normalizar_texto)
+            == normalizar_texto(salon_ev_sel)
+        ]
+
+      df_ev = df_ev.sort_values(by=["fecha_dt", "hora_inicio"])
+
+      if df_ev.empty:
+        st.warning("No hay eventos futuros registrados para el filtro seleccionado.")
+      else:
+        st.markdown(f"##### 📌 **Total de Eventos Encontrados:** {len(df_ev)}")
+
+        # Visualización tipo Agenda en Cuadrícula de 2 Columnas
+        cols_grid = st.columns(2)
+        for idx_ev, (_, row_ev) in enumerate(df_ev.iterrows()):
+          c_target = cols_grid[idx_ev % 2]
+          with c_target:
+            f_dt = row_ev["fecha_dt"]
+            dia_nombre = row_ev["dia"].upper()
+            fecha_card_fmt = f"{dia_nombre} {f_dt.strftime('%d/%m/%Y')}"
+            h_i, h_f = int(row_ev["hora_inicio"]), int(row_ev["hora_fin"])
+            titulo_ev = str(row_ev["asignatura"]).upper()
+            resp_ev = str(row_ev["docente"]).upper()
+            salon_ev = str(row_ev["espacio"]).upper()
+            obs_ev = row_ev.get("observacion", "")
+
+            obs_html = (
+                f"<div style='font-size:0.78rem; color:#fcd34d; margin-top:4px;'><b>Nota:</b> {obs_ev.upper()}</div>"
+                if pd.notna(obs_ev) and str(obs_ev).strip()
+                else ""
+            )
+
+            card_agenda_html = f"""
+                        <div class="event-agenda-card">
+                            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                                <span style="background:#f59e0b; color:#000; font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:4px;">📆 {fecha_card_fmt}</span>
+                                <span style="font-size:0.80rem; font-weight:700; color:#fbbf24;">🏛️ {salon_ev}</span>
+                            </div>
+                            <div style="font-size:1.05rem; font-weight:800; color:#f8fafc; margin-bottom:4px;">{titulo_ev}</div>
+                            <div style="font-size:0.82rem; color:#d1d5db;">⏰ <b>Horario:</b> {h_i:02d}:00 - {h_f:02d}:00 hrs</div>
+                            <div style="font-size:0.82rem; color:#d1d5db;">👨‍🏫 <b>Responsable:</b> {resp_ev}</div>
+                            {obs_html}
+                        </div>
+                        """
+            st.markdown(card_agenda_html, unsafe_allow_html=True)
+
+# -----------------------------------------------------------------------------
+# TAB 3 & 4: ADMINISTRACIÓN
 # -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_cargue:
   with tab_cargue:
@@ -687,11 +791,13 @@ if st.session_state.authenticated and tab_cargue:
           st.markdown("---")
           st.markdown("### 3️⃣ Paso 3: Confirmar Oferta Académica")
 
+          aulas_detectadas_excel = sorted(
+              df_edit["ESPACIO / SALÓN"].unique().tolist()
+          )
+
           col_m1, col_m2, col_m3 = st.columns(3)
           col_m1.metric("📚 Clases a Programar", len(df_edit))
-          col_m2.metric(
-              "🏛️ Aulas Asignadas", len(df_edit["ESPACIO / SALÓN"].unique())
-          )
+          col_m2.metric("🏛️ Aulas Asignadas", len(aulas_detectadas_excel))
           col_m3.metric("⏰ Horario Oficial Funcionarios", "07:00 a 19:00")
 
           df_editado = st.data_editor(
@@ -701,11 +807,7 @@ if st.session_state.authenticated and tab_cargue:
               column_config={
                   "ESPACIO / SALÓN": st.column_config.SelectboxColumn(
                       "Salón / Aula",
-                      options=[
-                          "E105 (SALA CAD)",
-                          "B222 (SALA COMPUTADORES)",
-                          "B222 (SALÓN POSGRADOS)",
-                      ],
+                      options=aulas_detectadas_excel,
                       required=True,
                   ),
                   "DÍA": st.column_config.SelectboxColumn(
@@ -762,8 +864,8 @@ if st.session_state.authenticated and tab_cargue:
                     <h4>📋 Formatos de Excel Compatibles:</h4>
                     
                     <b>1. Formato Cuadrícula de Coordinación (Conversión Automática)</b><br>
-                    • Libro con la matriz de horarios distribuida por franjas horarias (7 a 19) y salones (E105, B222).<br>
-                    • La fila inicial de cada salón debe listar los días de la semana y la columna A las horas en formato entero.<br><br>
+                    • Libro con la matriz de horarios distribuida por franjas horarias (7 a 19) y salones.<br>
+                    • La fila inicial de cada salón debe listar los días de la semana y la primera columna las horas.<br><br>
                     
                     <b>2. Formato Estructurado de Base de Datos</b><br>
                     • Nombre obligatorio de pestaña: <b><code>BD_Calendario_Semestre</code></b><br>
@@ -775,15 +877,22 @@ if st.session_state.authenticated and tab_cargue:
               unsafe_allow_html=True,
           )
 
-if st.session_state.authenticated and tab_eventos:
-  with tab_eventos:
+if st.session_state.authenticated and tab_eventos_adm:
+  with tab_eventos_adm:
     st.subheader("➕ Registrar Evento o Reserva Especial")
 
-    ev_salon = st.selectbox("1️⃣ Salón / Aula:", [
-        "E105 (SALA CAD)",
-        "B222 (SALA COMPUTADORES)",
-        "B222 (SALÓN POSGRADOS)",
-    ])
+    df_horarios = db.obtener_todos_los_horarios()
+    salones_db_dinamicos = (
+        sorted([
+            str(s).upper()
+            for s in df_horarios["espacio"].unique()
+            if pd.notna(s)
+        ])
+        if not df_horarios.empty
+        else ["AULA GENERAL"]
+    )
+
+    ev_salon = st.selectbox("1️⃣ Salón / Aula:", options=salones_db_dinamicos)
     ev_fecha = st.date_input(
         "2️⃣ Fecha del Evento:", value=datetime.date.today()
     )

@@ -1,6 +1,5 @@
 import datetime
-import io
-import openpyxl
+import re
 import pandas as pd
 
 
@@ -9,144 +8,169 @@ class HorarioController:
   def __init__(self, db_model):
     self.db = db_model
 
-  def intentar_convertir_matriz_raw(self, uploaded_file):
-    """Intenta interpretar un Excel en formato matriz/cuadrícula de Coordinación
+  def normalizar_texto(self, texto):
+    import unicodedata
 
-    y lo convierte en un DataFrame estructurado equivalente a
-    BD_Calendario_Semestre.
+    if not isinstance(texto, str):
+      return ""
+    texto = texto.strip().lower()
+    nfkd = unicodedata.normalize("NFKD", texto)
+    return "".join([c for c in nfkd if not unicodedata.combining(c)])
+
+  def procesar_cuadricula_coordinacion(self, file_path_or_bytes):
+    """Procesa el archivo Excel extrayendo de forma precisa el nombre de cada aula,
+
+    evitando tomar números de horas o encabezados como nombres de salón.
     """
-    SALONES_OBJETIVO = [
-        "E105 (SALA CAD)",
-        "B222 (SALA COMPUTADORES)",
-        "B222 (SALÓN POSGRADOS)",
-    ]
+    xls = pd.ExcelFile(file_path_or_bytes)
+    registros = []
 
-    try:
-      # Leer la primera pestaña sin encabezados
-      df_raw = pd.read_excel(uploaded_file, sheet_name=0, header=None)
-      bloques_semanales = []
+    for sheet_name in xls.sheet_names:
+      df_raw = pd.read_excel(xls, sheet_name=sheet_name, header=None)
+      filas, columnas = df_raw.shape
 
-      for target_room in SALONES_OBJETIVO:
-        room_idx = -1
-        for idx, r in df_raw.iterrows():
-          if pd.notna(r[1]) and target_room.upper() in str(r[1]).upper():
-            room_idx = idx
-            break
+      i = 0
+      nombre_salon_actual = None
 
-        if room_idx == -1:
-          continue
-
-        header_row = df_raw.iloc[room_idx + 1]
-        dias = [
-            str(c).strip().upper()
-            for c in header_row.values[1:]
-            if pd.notna(c)
+      while i < filas:
+        row_vals = [
+            str(x).strip() for x in df_raw.iloc[i].dropna() if str(x).strip()
         ]
 
-        grid_rows = []
-        curr_r = room_idx + 2
-        while curr_r < len(df_raw):
-          row_val = df_raw.iloc[curr_r]
-          if pd.isna(row_val[0]) or not str(
-              row_val[0]
-          ).strip().replace(".0", "").isdigit():
-            break
-          hora = int(float(str(row_val[0]).strip()))
-          grid_rows.append((hora, row_val[1 : 1 + len(dias)].values))
-          curr_r += 1
+        # 1. Identificar si la fila actual define la cabecera con los días de la semana
+        dias_detectados = {}
+        for col_idx in range(columnas):
+          val_celda = df_raw.iloc[i, col_idx]
+          val_norm = self.normalizar_texto(str(val_celda))
+          if val_norm in [
+              "lunes",
+              "martes",
+              "miercoles",
+              "jueves",
+              "viernes",
+              "sabado",
+              "domingo",
+          ]:
+            dias_detectados[col_idx] = str(val_celda).strip().upper()
 
-        for col_idx, dia in enumerate(dias):
-          i = 0
-          while i < len(grid_rows):
-            hora_start, vals = grid_rows[i]
-            cell = vals[col_idx]
-            txt = str(cell).strip() if pd.notna(cell) else ""
+        # Si encontramos una fila con 3 o más días de la semana
+        if len(dias_detectados) >= 3:
+          # Buscar el nombre real del salón en las filas anteriores
+          posible_salon = ""
+          for k in range(max(0, i - 4), i):
+            vals_prev = [
+                str(x).strip()
+                for x in df_raw.iloc[k].dropna()
+                if str(x).strip()
+            ]
+            cand = " ".join(vals_prev).upper()
 
-            if txt != "" and txt.lower() != "nan":
-              j = i + 1
-              bloque_texto = [txt]
+            # Evitar tomar filas numéricas (ej. '19', '20') o palabras clave reservadas
+            if cand and not cand.isdigit() and len(cand) > 2:
+              if not any(
+                  term in cand
+                  for term in [
+                      "HORA",
+                      "LUNES",
+                      "MARTES",
+                      "MIÉRCOLES",
+                      "JUEVES",
+                      "VIERNES",
+                      "SÁBADO",
+                      "DÍA",
+                      "SEMANA",
+                  ]
+              ):
+                posible_salon = cand
 
-              while j < len(grid_rows):
-                next_cell = grid_rows[j][1][col_idx]
-                next_txt = (
-                    str(next_cell).strip() if pd.notna(next_cell) else ""
+          if posible_salon:
+            nombre_salon_actual = posible_salon
+          elif not nombre_salon_actual:
+            nombre_salon_actual = "AULA GENERAL"
+
+          # 2. Recorrer las filas de horas y clases para esta tabla de días
+          j = i + 1
+          while j < filas:
+            col_hora_val = df_raw.iloc[j, 0]
+            if pd.isna(col_hora_val) and columnas > 1:
+              col_hora_val = df_raw.iloc[j, 1]
+
+            row_text = " ".join(
+                [str(x) for x in df_raw.iloc[j].dropna().values]
+            ).upper()
+
+            # Romper si llegamos a otra cabecera de días o de nuevo salón
+            if (
+                sum(
+                    1
+                    for d in [
+                        "LUNES",
+                        "MARTES",
+                        "MIÉRCOLES",
+                        "JUEVES",
+                        "VIERNES",
+                    ]
+                    if d in row_text
                 )
-                if next_txt != "" and next_txt.lower() != "nan":
-                  if next_txt == txt or len(bloque_texto) < 2:
-                    bloque_texto.append(next_txt)
-                    j += 1
-                  else:
-                    break
-                else:
-                  break
+                >= 2
+            ):
+              i = j - 1
+              break
 
-              hora_end = grid_rows[j - 1][0] + 1
-              if hora_end > 19:
-                hora_end = 19
+            # Extraer número de hora (7 a 19)
+            hora_ini = None
+            if pd.notna(col_hora_val):
+              match_hora = re.search(r"\b(\d{1,2})\b", str(col_hora_val))
+              if match_hora:
+                val_h = int(match_hora.group(1))
+                if 7 <= val_h <= 19:
+                  hora_ini = val_h
 
-              lines = [
-                  l.strip().upper() for l in txt.split("\n") if l.strip()
-              ]
-              asig = lines[0] if len(lines) > 0 else "SIN ASIGNATURA"
-              doc = (
-                  lines[1]
-                  if len(lines) > 1
-                  else (
-                      " ".join(bloque_texto[1:])
-                      .replace("\n", " ")
-                      .strip()
-                      .upper()
-                      if len(bloque_texto) > 1
-                      else "POR DEFINIR"
+            if hora_ini is not None:
+              hora_fin = hora_ini + 1 if hora_ini < 19 else 19
+
+              for col_idx, dia_nombre in dias_detectados.items():
+                celda_contenido = df_raw.iloc[j, col_idx]
+                if (
+                    pd.notna(celda_contenido)
+                    and str(celda_contenido).strip() != ""
+                ):
+                  texto_clase = str(celda_contenido).strip()
+
+                  # Separar asignatura y docente
+                  partes = [
+                      p.strip()
+                      for p in re.split(r"[\n\r\t]+", texto_clase)
+                      if p.strip()
+                  ]
+                  asig = partes[0].upper() if partes else "ASIGNATURA"
+                  docente = (
+                      partes[1].upper()
+                      if len(partes) > 1
+                      else "DOCENTE NO ASIGNADO"
                   )
-              )
 
-              bloques_semanales.append({
-                  "espacio": target_room.upper(),
-                  "dia": dia.upper(),
-                  "hora_inicio": hora_start,
-                  "hora_fin": hora_end,
-                  "asignatura": asig,
-                  "docente": doc,
-              })
-              i = j
-            else:
-              i += 1
+                  registros.append({
+                      "ESPACIO / SALÓN": nombre_salon_actual,
+                      "DÍA": dia_nombre,
+                      "HORA INICIO (24H)": hora_ini,
+                      "HORA FIN (24H)": hora_fin,
+                      "ASIGNATURA": asig,
+                      "DOCENTE": docente,
+                  })
+            j += 1
+          i = j
+        else:
+          i += 1
 
-      if not bloques_semanales:
-        return None
-
-      # Convertir los bloques únicos a DataFrame base
-      df_unicas = pd.DataFrame(bloques_semanales)
-      df_unicas.rename(
-          columns={
-              "espacio": "ESPACIO / SALÓN",
-              "dia": "DÍA",
-              "hora_inicio": "HORA INICIO (24H)",
-              "hora_fin": "HORA FIN (24H)",
-              "asignatura": "ASIGNATURA",
-              "docente": "DOCENTE",
-          },
-          inplace=True,
-      )
-
-      return df_unicas
-
-    except Exception:
-      return None
+    return pd.DataFrame(registros)
 
   def validar_y_procesar_excel(self, uploaded_file):
-    """Procesa y valida el archivo subido.
-
-    Intenta primero la lectura directa y, si falla, ejecuta la conversión
-    automática del formato cuadrícula de Coordinación.
-    """
     xls = pd.ExcelFile(uploaded_file)
 
-    # 1. Si ya incluye la pestaña estructurada
     if "BD_Calendario_Semestre" in xls.sheet_names:
-      df = pd.read_excel(xls, sheet_name="BD_Calendario_Semestre")
-      cols_requeridas = [
+      df_bd = pd.read_excel(xls, sheet_name="BD_Calendario_Semestre")
+      cols_req = [
           "ESPACIO / SALÓN",
           "DÍA",
           "HORA INICIO (24H)",
@@ -154,65 +178,65 @@ class HorarioController:
           "ASIGNATURA",
           "DOCENTE",
       ]
-      faltantes = [c for c in cols_requeridas if c not in df.columns]
-      if faltantes:
-        raise ValueError(f"COLUMNAS_MISSING:{', '.join(faltantes)}")
+      if all(col in df_bd.columns for col in cols_req):
+        return df_bd[cols_req].dropna(subset=["ESPACIO / SALÓN", "ASIGNATURA"])
 
-      # Eliminar duplicados semanales
-      df_unicas = df[cols_requeridas].drop_duplicates()
-      return df_unicas
+    df_cuadricula = self.procesar_cuadricula_coordinacion(uploaded_file)
+    if not df_cuadricula.empty:
+      return df_cuadricula
 
-    # 2. Si no tiene la pestaña, intentar conversión automática desde matriz
-    df_convertido = self.intentar_convertir_matriz_raw(uploaded_file)
+    raise ValueError("El archivo Excel no cumple con los formatos soportados.")
 
-    if df_convertido is not None and not df_convertido.empty:
-      return df_convertido
-
-    # 3. Si ambos métodos fallan, notificar incompatibilidad de formato
-    raise ValueError("FORMATO_INCOMPATIBLE")
-
-  def validar_rango_laboral(self, df_editado):
+  def validar_rango_laboral(self, df):
     errores = []
-    for idx, row in df_editado.iterrows():
-      ini = int(row["HORA INICIO (24H)"])
-      fin = int(row["HORA FIN (24H)"])
-      if ini < 7 or fin > 19 or ini >= fin:
-        errores.append(idx)
+    for idx, row in df.iterrows():
+      h_ini = int(row["HORA INICIO (24H)"])
+      h_fin = int(row["HORA FIN (24H)"])
+      if h_ini < 7 or h_fin > 19 or h_fin <= h_ini:
+        errores.append(
+            f"Fila {idx + 1}: Horario no permitido ({h_ini} a {h_fin})"
+        )
     return errores
 
   def proyectar_y_guardar_semestre(self, df_unicas, f_inicio, f_fin):
     MAPA_DIAS = {
-        0: "LUNES",
-        1: "MARTES",
-        2: "MIÉRCOLES",
-        3: "JUEVES",
-        4: "VIERNES",
-        5: "SÁBADO",
-        6: "DOMINGO",
+        "LUNES": 0,
+        "MARTES": 1,
+        "MIÉRCOLES": 2,
+        "MIERCOLES": 2,
+        "JUEVES": 3,
+        "VIERNES": 4,
+        "SÁBADO": 5,
+        "SABADO": 5,
+        "DOMINGO": 6,
     }
+
     registros_proyectados = []
+    num_dias = (f_fin - f_inicio).days + 1
 
-    curr_date = f_inicio
-    while curr_date <= f_fin:
-      dia_str = MAPA_DIAS.get(curr_date.weekday(), "")
-      clases_dia = df_unicas[df_unicas["DÍA"].str.upper() == dia_str]
+    for i in range(num_dias):
+      fecha_curr = f_inicio + datetime.timedelta(days=i)
+      dia_num_week = fecha_curr.weekday()
 
-      for _, row in clases_dia.iterrows():
-        registros_proyectados.append({
-            "espacio": row["ESPACIO / SALÓN"],
-            "fecha": curr_date.strftime("%Y-%m-%d"),
-            "mes": curr_date.strftime("%B").upper(),
-            "dia_num": curr_date.day,
-            "dia": dia_str,
-            "hora_inicio": int(row["HORA INICIO (24H)"]),
-            "hora_fin": int(row["HORA FIN (24H)"]),
-            "asignatura": row["ASIGNATURA"],
-            "docente": row["DOCENTE"],
-            "tipo_evento": "clase",
-            "observacion": "",
-        })
+      for _, row in df_unicas.iterrows():
+        dia_str = str(row["DÍA"]).upper().strip()
+        dia_target_num = MAPA_DIAS.get(dia_str)
 
-      curr_date += datetime.timedelta(days=1)
+        if dia_target_num == dia_num_week:
+          registros_proyectados.append({
+              "espacio": str(row["ESPACIO / SALÓN"]).upper().strip(),
+              "fecha": fecha_curr.strftime("%Y-%m-%d"),
+              "mes": fecha_curr.strftime("%B").upper(),
+              "dia_num": fecha_curr.day,
+              "dia": dia_str,
+              "hora_inicio": int(row["HORA INICIO (24H)"]),
+              "hora_fin": int(row["HORA FIN (24H)"]),
+              "asignatura": str(row["ASIGNATURA"]).upper().strip(),
+              "docente": str(row["DOCENTE"]).upper().strip(),
+              "tipo_evento": "clase",
+              "observacion": "",
+          })
 
     df_final = pd.DataFrame(registros_proyectados)
     self.db.reemplazar_horarios_semestre(df_final, f_inicio, f_fin)
+    return len(df_final)
