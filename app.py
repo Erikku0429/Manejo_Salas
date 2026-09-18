@@ -41,12 +41,11 @@ def generar_estilo_color_materia(nombre_asignatura):
 
 
 # -----------------------------------------------------------------------------
-# ESTILOS CSS CON MATRIZ RÍGIDA Y ALINEACIÓN PERFECTA DE ENCABEZADOS Y TARJETAS
+# ESTILOS CSS CON TRANSICIÓN DE EXPANSIÓN SÚTIL Y RÁPIDA (CLIC / FOCO)
 # -----------------------------------------------------------------------------
 st.markdown(
     """
     <style>
-    /* Caja de Encabezado Uniforme */
     .day-header-box {
         height: 65px;
         display: flex;
@@ -79,8 +78,7 @@ st.markdown(
         margin-top: 2px;
     }
 
-    /* Tarjetas de Contenido con Dimensiones Simétricas Rigurosas */
-    .class-card {
+    .class-card, .card-disponible {
         border-radius: 6px;
         padding: 8px 10px;
         margin-bottom: 8px;
@@ -90,6 +88,18 @@ st.markdown(
         justify-content: center;
         box-shadow: 0 2px 4px rgba(0,0,0,0.3);
         box-sizing: border-box;
+        cursor: pointer;
+        position: relative;
+        outline: none;
+        transition: transform 0.18s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.18s ease-in-out, z-index 0s 0.18s;
+    }
+
+    .class-card:focus, .card-disponible:focus,
+    .class-card:active, .card-disponible:active {
+        transform: scale(1.035);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
+        z-index: 20;
+        transition: transform 0.18s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.18s ease-in-out;
     }
 
     .class-card-evento {
@@ -101,16 +111,7 @@ st.markdown(
         background: rgba(16, 185, 129, 0.10);
         border: 1px dashed #10b981;
         border-left: 4px solid #10b981;
-        border-radius: 6px;
-        padding: 8px 10px;
-        margin-bottom: 8px;
-        min-height: 85px;
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
         color: #a7f3d0;
-        box-sizing: border-box;
         text-align: center;
     }
 
@@ -121,6 +122,12 @@ st.markdown(
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+    }
+
+    .class-card:focus .class-title,
+    .class-card:focus .class-doc {
+        white-space: normal !important;
+        overflow: visible !important;
     }
 
     .class-doc {
@@ -255,7 +262,6 @@ def renderizar_matriz_semanal_aula(
     es_dia_hoy = fecha_dia_actual == fecha_hoy
 
     with cols_dias[idx_d]:
-      # Encabezado del día en HTML limpio
       header_class = (
           "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
       )
@@ -288,10 +294,10 @@ def renderizar_matriz_semanal_aula(
         if not ocultar_disponibles or solo_disponibles:
           salon_txt = f" | {salon_upper}" if salon_upper else ""
           card_free = (
-              "<div class='card-disponible'><div style='font-weight:700;"
-              " font-size:0.85rem;'>🟢 DISPONIBLE</div><div class='class-time'"
-              " style='margin-top:3px;'>⏰ 07:00 - 19:00"
-              f"{salon_txt}</div></div>"
+              "<div class='card-disponible' tabindex='0'><div"
+              " style='font-weight:700; font-size:0.85rem;'>🟢"
+              " DISPONIBLE</div><div class='class-time' style='margin-top:3px;'>⏰"
+              f" 07:00 - 19:00{salon_txt}</div></div>"
           )
           st.markdown(card_free, unsafe_allow_html=True)
       else:
@@ -307,21 +313,25 @@ def renderizar_matriz_semanal_aula(
               or solo_disponibles
           ):
             card_prev = (
-                "<div class='card-disponible'><div style='font-weight:700;"
-                " font-size:0.8rem;'>🟢 DISPONIBLE</div><div"
-                " class='class-time' style='margin-top:3px;'>⏰"
-                f" {hora_cursor:02d}:00 - {h_ini:02d}:00 | {salon_row}</div></div>"
+                "<div class='card-disponible' tabindex='0'><div"
+                " style='font-weight:700; font-size:0.8rem;'>🟢"
+                " DISPONIBLE</div><div class='class-time'"
+                f" style='margin-top:3px;'>⏰ {hora_cursor:02d}:00 -"
+                f" {h_ini:02d}:00 | {salon_row}</div></div>"
             )
             st.markdown(card_prev, unsafe_allow_html=True)
 
           # Dibujar clase asignada
           if not solo_disponibles:
-            es_evento = c["tipo_evento"].lower() == "evento"
-            asig_upper = str(c["asignatura"]).upper()
-            doc_upper = str(c["docente"]).upper()
+            tipo_ev = str(c.get("tipo_evento", "")).lower()
+            es_evento = tipo_ev == "evento"
+            asig_upper = str(c.get("asignatura", "")).upper()
+            doc_upper = str(c.get("docente", "")).upper()
+
+            obs_val = c.get("observacion", "")
             obs_txt = (
-                f"<br><small><b>Obs:</b> {c['observacion'].upper()}</small>"
-                if c["observacion"]
+                f"<br><small><b>Obs:</b> {str(obs_val).upper()}</small>"
+                if pd.notna(obs_val) and str(obs_val).strip()
                 else ""
             )
 
@@ -333,9 +343,9 @@ def renderizar_matriz_semanal_aula(
               class_attr = "class-card"
 
             card_class_html = (
-                f"<div class='{class_attr}' style='{style_card}'><div"
-                f" class='class-time'>⏰ {h_ini:02d}:00 - {h_fin:02d}:00 |"
-                f" {salon_row}</div><div class='class-title'"
+                f"<div class='{class_attr}' style='{style_card}'"
+                f" tabindex='0'><div class='class-time'>⏰ {h_ini:02d}:00 -"
+                f" {h_fin:02d}:00 | {salon_row}</div><div class='class-title'"
                 f" title='{asig_upper}'>{asig_upper}</div><div"
                 f" class='class-doc' title='{doc_upper}'>👨‍🏫"
                 f" {doc_upper}{obs_txt}</div></div>"
@@ -351,9 +361,10 @@ def renderizar_matriz_semanal_aula(
             or solo_disponibles
         ):
           card_post = (
-              "<div class='card-disponible'><div style='font-weight:700;"
-              " font-size:0.8rem;'>🟢 DISPONIBLE</div><div"
-              " class='class-time' style='margin-top:3px;'>⏰"
+              "<div class='card-disponible' tabindex='0'><div"
+              " style='font-weight:700; font-size:0.8rem;'>🟢"
+              " DISPONIBLE</div><div class='class-time'"
+              " style='margin-top:3px;'>⏰"
               f" {hora_cursor:02d}:00 - {hora_limite:02d}:00 |"
               f" {salon_upper if salon_upper else 'VARIAS AULAS'}</div></div>"
           )
@@ -458,7 +469,6 @@ with tab_horarios:
         f" (Lunes) al **{fin_txt}**"
     )
 
-    # VISTA CONDICIONAL: Si se filtra por asignatura, docente o disponible, SE MUESTRA DIRECTAMENTE SIN EXPANDERS
     if (
         salon_sel == "TODOS"
         and not hay_busqueda_activa
