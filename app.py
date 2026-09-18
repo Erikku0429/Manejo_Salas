@@ -52,6 +52,10 @@ def resetear_filtros_callback():
   st.session_state["input_horas"] = (7, 19)
 
 
+def ir_a_pestaña(nombre_tab):
+  st.session_state["active_tab"] = nombre_tab
+
+
 # -----------------------------------------------------------------------------
 # ESTILOS CSS CON TÍTULO CENTRADO Y TRANSICIONES INTERACTIVAS
 # -----------------------------------------------------------------------------
@@ -218,15 +222,41 @@ else:
     st.rerun()
 
 
-# Modales
-@st.dialog("🎉 Carga Exitosa")
+# Modales / Ventanas Emergentes
+@st.dialog("🎉 Carga Semestral Exitosa")
 def mostrar_popup_exito(total_registros, f_ini, f_fin):
   st.success("### ¡Las asignaturas han sido guardadas!")
   st.write(
       f"• **Periodo Configurado:** Del **{f_ini}** al **{f_fin}**\n"
       f"• **Sesiones Proyectadas:** **{total_registros} clases** registradas."
   )
-  if st.button("Ir a Consulta de Horarios ➡️", type="primary"):
+  if st.button(
+      "Aceptar",
+      type="primary",
+      on_click=ir_a_pestaña,
+      args=("📅 Consulta de Horarios (Público / QR)",),
+  ):
+    st.rerun()
+
+
+@st.dialog("🎉 Evento Asignado con Éxito")
+def mostrar_popup_evento_exito(
+    nombre_evento, salon, fecha, hora_ini, hora_fin, responsable
+):
+  st.success("### ¡El evento ha sido registrado correctamente!")
+  st.markdown(
+      f"• **Evento:** **{nombre_evento}**\n"
+      f"• **Lugar:** **{salon}**\n"
+      f"• **Fecha:** **{fecha}**\n"
+      f"• **Horario:** **{hora_ini}:00 - {hora_fin}:00 hrs**\n"
+      f"• **Responsable:** **{responsable}**"
+  )
+  if st.button(
+      "Aceptar",
+      type="primary",
+      on_click=ir_a_pestaña,
+      args=("📢 Próximos Eventos",),
+  ):
     st.rerun()
 
 
@@ -281,13 +311,29 @@ else:
 
 st.markdown("---")
 
+# Gestión del estado dinámico de las pestañas
 if st.session_state.authenticated:
-  tabs = st.tabs([
+  lista_tabs = [
       "📅 Consulta de Horarios (Público / QR)",
       "📢 Próximos Eventos",
       "📋 Confirmación de Carga Semestral (Admin)",
       "➕ Eventos y Cambios (Admin)",
-  ])
+  ]
+else:
+  lista_tabs = [
+      "📅 Consulta de Horarios (Público / QR)",
+      "📢 Próximos Eventos",
+  ]
+
+if "active_tab" not in st.session_state or st.session_state[
+    "active_tab"
+] not in lista_tabs:
+  st.session_state["active_tab"] = lista_tabs[0]
+
+# Renderizado del conjunto de pestañas dinámicas
+tabs = st.tabs(lista_tabs)
+
+if st.session_state.authenticated:
   tab_horarios, tab_eventos_pub, tab_cargue, tab_eventos_adm = (
       tabs[0],
       tabs[1],
@@ -295,10 +341,6 @@ if st.session_state.authenticated:
       tabs[3],
   )
 else:
-  tabs = st.tabs([
-      "📅 Consulta de Horarios (Público / QR)",
-      "📢 Próximos Eventos",
-  ])
   tab_horarios, tab_eventos_pub = tabs[0], tabs[1]
   tab_cargue, tab_eventos_adm = None, None
 
@@ -662,7 +704,7 @@ with tab_horarios:
         )
 
 # -----------------------------------------------------------------------------
-# TAB 2: PRÓXIMOS EVENTOS (PÚBLICO - AGENDA DE EVENTOS ESPECIALES)
+# TAB 2: PRÓXIMOS EVENTOS (PÚBLICO)
 # -----------------------------------------------------------------------------
 with tab_eventos_pub:
   st.subheader("📢 Agenda de Eventos y Reservas Especiales")
@@ -672,7 +714,6 @@ with tab_eventos_pub:
   if df_todos.empty:
     st.info("No hay eventos ni programaciones registradas en el sistema.")
   else:
-    # Filtrar únicamente registros etiquetados como evento
     df_ev = df_todos[
         df_todos["tipo_evento"].apply(lambda x: str(x).lower()) == "evento"
     ].copy()
@@ -683,7 +724,6 @@ with tab_eventos_pub:
       df_ev["fecha_dt"] = pd.to_datetime(df_ev["fecha"]).dt.date
       fecha_hoy_ev = datetime.date.today()
 
-      # Opciones de filtro
       col_e1, col_e2 = st.columns([2, 2])
       with col_e1:
         filtro_rango_ev = st.radio(
@@ -709,11 +749,12 @@ with tab_eventos_pub:
       df_ev = df_ev.sort_values(by=["fecha_dt", "hora_inicio"])
 
       if df_ev.empty:
-        st.warning("No hay eventos futuros registrados para el filtro seleccionado.")
+        st.warning(
+            "No hay eventos futuros registrados para el filtro seleccionado."
+        )
       else:
         st.markdown(f"##### 📌 **Total de Eventos Encontrados:** {len(df_ev)}")
 
-        # Visualización tipo Agenda en Cuadrícula de 2 Columnas
         cols_grid = st.columns(2)
         for idx_ev, (_, row_ev) in enumerate(df_ev.iterrows()):
           c_target = cols_grid[idx_ev % 2]
@@ -728,7 +769,8 @@ with tab_eventos_pub:
             obs_ev = row_ev.get("observacion", "")
 
             obs_html = (
-                f"<div style='font-size:0.78rem; color:#fcd34d; margin-top:4px;'><b>Nota:</b> {obs_ev.upper()}</div>"
+                f"<div style='font-size:0.78rem; color:#fcd34d;"
+                f" margin-top:4px;'><b>Nota:</b> {obs_ev.upper()}</div>"
                 if pd.notna(obs_ev) and str(obs_ev).strip()
                 else ""
             )
@@ -976,5 +1018,6 @@ if st.session_state.authenticated and tab_eventos_adm:
             ev_doc,
             ev_obs,
         )
-        st.success("🎉 Evento asignado correctamente.")
-        st.rerun()
+        mostrar_popup_evento_exito(
+            ev_asig, ev_salon, fecha_ev_str, ev_h_ini, ev_h_fin, ev_doc
+        )
