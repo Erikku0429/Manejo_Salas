@@ -1,267 +1,202 @@
-import os
 import sqlite3
-import sys
-import unicodedata
-import pandas as pd
-
-
-def normalizar_texto(texto):
-  if not isinstance(texto, str):
-    return ""
-  texto = texto.strip().lower()
-  nfkd = unicodedata.normalize("NFKD", texto)
-  return "".join([c for c in nfkd if not unicodedata.combining(c)])
-
-
-def obtener_ruta_persistente_db(nombre_db="horarios.db"):
-  if getattr(sys, "frozen", False):
-    base_dir = os.path.dirname(sys.executable)
-  else:
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-  return os.path.join(base_dir, nombre_db)
 
 
 class DatabaseModel:
 
-  def __init__(self, db_filename="horarios.db"):
-    self.db_path = obtener_ruta_persistente_db(db_filename)
-    self.init_db()
+  def __init__(self, db_name='aulas_universitarias.db'):
+    self.db_name = db_name
+    self.crear_tablas()
 
-  def get_connection(self):
-    return sqlite3.connect(self.db_path, timeout=10)
+  def crear_tablas(self):
+    conn = sqlite3.connect(self.db_name)
+    cursor = conn.cursor()
 
-  def init_db(self):
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      cursor.execute("PRAGMA journal_mode=WAL;")
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS horarios (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                espacio TEXT NOT NULL,
+                fecha TEXT NOT NULL,
+                mes TEXT NOT NULL,
+                dia_num INTEGER NOT NULL,
+                dia TEXT NOT NULL,
+                hora_inicio INTEGER NOT NULL,
+                hora_fin INTEGER NOT NULL,
+                asignatura TEXT NOT NULL,
+                docente TEXT NOT NULL,
+                tipo_evento TEXT DEFAULT 'clase',
+                observacion TEXT DEFAULT ''
+            )
+        """)
 
-      cursor.execute("""
-                CREATE TABLE IF NOT EXISTS horarios (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    espacio TEXT NOT NULL,
-                    fecha TEXT NOT NULL,
-                    mes TEXT NOT NULL,
-                    dia_num INTEGER NOT NULL,
-                    dia TEXT NOT NULL,
-                    hora_inicio INTEGER NOT NULL,
-                    hora_fin INTEGER NOT NULL,
-                    asignatura TEXT NOT NULL,
-                    docente TEXT NOT NULL,
-                    tipo_evento TEXT DEFAULT 'regular',
-                    observacion TEXT
-                )
-            """)
+    cursor.execute("""
+            CREATE TABLE IF NOT EXISTS vigencia_semestre (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fecha_inicio TEXT NOT NULL,
+                fecha_fin TEXT NOT NULL
+            )
+        """)
 
-      cursor.execute("""
-                CREATE TABLE IF NOT EXISTS config_semestre (
-                    id INTEGER PRIMARY KEY CHECK (id = 1),
-                    fecha_inicio TEXT NOT NULL,
-                    fecha_fin TEXT NOT NULL,
-                    fecha_cargue TEXT NOT NULL
-                )
-            """)
-      conn.commit()
+    conn.commit()
+    conn.close()
 
-    # Ejecutar siempre la limpieza de eventos caducados al iniciar
-    self.limpiar_eventos_expirados()
+  def obtener_todos_los_horarios(self):
+    import pandas as pd
 
-  def limpiar_eventos_expirados(self):
-    """Elimina automáticamente de la BD los eventos puntuales cuya fecha sea menor a HOY."""
-    import datetime
+    conn = sqlite3.connect(self.db_name)
+    df = pd.read_sql_query("SELECT * FROM horarios", conn)
+    conn.close()
+    return df
 
-    fecha_hoy_str = datetime.date.today().strftime("%Y-%m-%d")
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      cursor.execute(
-          "DELETE FROM horarios WHERE tipo_evento = 'evento' AND fecha < ?",
-          (fecha_hoy_str,),
-      )
-      conn.commit()
-
-  def guardar_carga_semestral(
-      self, df_confirmado, fecha_inicio_str, fecha_fin_str, reemplazar=True
-  ):
-    import datetime
-
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      if reemplazar:
-        cursor.execute("DELETE FROM horarios WHERE tipo_evento = 'regular'")
-
-      registros = []
-      for _, row in df_confirmado.iterrows():
-        registros.append((
-            normalizar_texto(str(row["ESPACIO / SALÓN"])),
-            str(row["FECHA"]).strip(),
-            normalizar_texto(str(row["MES"])),
-            int(row["DÍA NUM"]),
-            normalizar_texto(str(row["DÍA"])),
-            int(row["HORA INICIO (24H)"]),
-            int(row["HORA FIN (24H)"]),
-            normalizar_texto(str(row["ASIGNATURA"])),
-            normalizar_texto(str(row["DOCENTE"])),
-        ))
-
-      cursor.executemany(
-          """
-                INSERT INTO horarios (espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, asignatura, docente, tipo_evento)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'regular')
-            """,
-          registros,
-      )
-
-      fecha_hoy = datetime.date.today().strftime("%Y-%m-%d")
-      cursor.execute(
-          """
-                INSERT OR REPLACE INTO config_semestre (id, fecha_inicio, fecha_fin, fecha_cargue)
-                VALUES (1, ?, ?, ?)
-            """,
-          (fecha_inicio_str, fecha_fin_str, fecha_hoy),
-      )
-      conn.commit()
-
-  def verificar_conflicto_horario(self, espacio, fecha_str, h_inicio, h_fin):
-    """Verifica si en esa fecha, espacio y franja horaria existe alguna clase o evento."""
-    espacio_norm = normalizar_texto(espacio)
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      cursor.execute(
-          """
-                SELECT espacio, asignatura, docente, hora_inicio, hora_fin, tipo_evento, observacion
-                FROM horarios
-                WHERE espacio = ? AND fecha = ?
-                AND NOT (hora_fin <= ? OR hora_inicio >= ?)
-            """,
-          (espacio_norm, fecha_str, h_inicio, h_fin),
-      )
-      rows = cursor.fetchall()
-    return rows
+  def vaciar_base_de_datos(self):
+    conn = sqlite3.connect(self.db_name)
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM horarios")
+    cursor.execute("DELETE FROM vigencia_semestre")
+    conn.commit()
+    conn.close()
 
   def obtener_vigencia_semestre(self):
     import datetime
 
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      cursor.execute(
-          "SELECT fecha_inicio, fecha_fin FROM config_semestre WHERE id = 1"
-      )
-      row = cursor.fetchone()
+    conn = sqlite3.connect(self.db_name)
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT fecha_inicio, fecha_fin FROM vigencia_semestre ORDER BY id DESC"
+        " LIMIT 1"
+    )
+    row = cursor.fetchone()
+    conn.close()
 
-    if not row:
-      return False, "No hay ningún semestre cargado en el sistema.", None, None
+    if row:
+      f_ini = datetime.datetime.strptime(row[0], "%Y-%m-%d").date()
+      f_fin = datetime.datetime.strptime(row[1], "%Y-%m-%d").date()
+      hoy = datetime.date.today()
 
-    f_inicio_str, f_fin_str = row
-    today = datetime.date.today()
-    f_fin_date = datetime.datetime.strptime(f_fin_str, "%Y-%m-%d").date()
-
-    if today > f_fin_date:
-      return (
-          False,
-          f"El semestre guardado finalizó el {f_fin_str}. Se requiere un nuevo"
-          " cargue semestral.",
-          f_inicio_str,
-          f_fin_str,
-      )
+      if hoy < f_ini:
+        return (
+            False,
+            f"El semestre aún no ha iniciado. Programado del {f_ini} al {f_fin}",
+            f_ini,
+            f_fin,
+        )
+      elif hoy > f_fin:
+        return (
+            False,
+            f"El semestre ha finalizado. Periodo: {f_ini} al {f_fin}",
+            f_ini,
+            f_fin,
+        )
+      else:
+        return True, f"Semestre activo ({f_ini} al {f_fin})", f_ini, f_fin
 
     return (
-        True,
-        f"Semestre vigente (Del {f_inicio_str} al {f_fin_str}).",
-        f_inicio_str,
-        f_fin_str,
+        False,
+        "No hay un semestre cargado en el sistema.",
+        None,
+        None,
     )
 
-  def obtener_todos_los_horarios(self):
-    self.limpiar_eventos_expirados()
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      cursor.execute("""
-                SELECT id, espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, 
-                       asignatura, docente, tipo_evento, observacion 
-                FROM horarios 
-                ORDER BY fecha, hora_inicio
-            """)
-      rows = cursor.fetchall()
+  def reemplazar_horarios_semestre(self, df_final, f_inicio, f_fin):
+    conn = sqlite3.connect(self.db_name)
+    cursor = conn.cursor()
 
-    columns = [
-        "id",
-        "espacio",
-        "fecha",
-        "mes",
-        "dia_num",
-        "dia",
-        "hora_inicio",
-        "hora_fin",
-        "asignatura",
-        "docente",
-        "tipo_evento",
-        "observacion",
-    ]
-    return pd.DataFrame(rows, columns=columns)
+    cursor.execute("DELETE FROM horarios")
+    cursor.execute("DELETE FROM vigencia_semestre")
+
+    cursor.execute(
+        "INSERT INTO vigencia_semestre (fecha_inicio, fecha_fin) VALUES (?,"
+        " ?)",
+        (f_inicio.strftime("%Y-%m-%d"), f_fin.strftime("%Y-%m-%d")),
+    )
+
+    for _, row in df_final.iterrows():
+      cursor.execute(
+          """
+            INSERT INTO horarios (espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, asignatura, docente, tipo_evento, observacion)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+          (
+              row["espacio"],
+              row["fecha"],
+              row["mes"],
+              row["dia_num"],
+              row["dia"],
+              row["hora_inicio"],
+              row["hora_fin"],
+              row["asignatura"],
+              row["docente"],
+              row.get("tipo_evento", "clase"),
+              row.get("observacion", ""),
+          ),
+      )
+
+    conn.commit()
+    conn.close()
+
+  def verificar_conflicto_horario(self, espacio, fecha, hora_ini, hora_fin):
+    conn = sqlite3.connect(self.db_name)
+    cursor = conn.cursor()
+
+    cursor.execute(
+        """
+            SELECT id, asignatura, docente, hora_inicio, hora_fin, tipo_evento
+            FROM horarios
+            WHERE espacio = ? AND fecha = ? AND hora_inicio < ? AND hora_fin > ?
+        """,
+        (espacio, fecha, hora_fin, hora_ini),
+    )
+
+    conflictos = cursor.fetchall()
+    conn.close()
+    return conflictos
 
   def agregar_evento_especial(
-      self,
-      espacio,
-      fecha,
-      hora_inicio,
-      hora_fin,
-      asignatura,
-      docente,
-      observacion="",
+      self, espacio, fecha, hora_ini, hora_fin, asignatura, docente, observacion
   ):
     import datetime
 
-    fecha_dt = datetime.datetime.strptime(fecha, "%Y-%m-%d")
-    dias_esp = {
-        0: "lunes",
-        1: "martes",
-        2: "miercoles",
-        3: "jueves",
-        4: "viernes",
-        5: "sabado",
-        6: "domingo",
-    }
-    dia_str = dias_esp[fecha_dt.weekday()]
-    meses_esp = {
-        1: "enero",
-        2: "febrero",
-        3: "marzo",
-        4: "abril",
-        5: "mayo",
-        6: "junio",
-        7: "julio",
-        8: "agosto",
-        9: "septiembre",
-        10: "octubre",
-        11: "noviembre",
-        12: "diciembre",
-    }
-    mes_str = meses_esp[fecha_dt.month]
+    conn = sqlite3.connect(self.db_name)
+    cursor = conn.cursor()
 
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      cursor.execute(
-          """
-                INSERT INTO horarios (espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, asignatura, docente, tipo_evento, observacion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'evento', ?)
-            """,
-          (
-              normalizar_texto(espacio),
-              fecha,
-              mes_str,
-              fecha_dt.day,
-              dia_str,
-              hora_inicio,
-              hora_fin,
-              normalizar_texto(asignatura),
-              normalizar_texto(docente),
-              normalizar_texto(observacion),
-          ),
-      )
-      conn.commit()
+    dt_fecha = datetime.datetime.strptime(fecha, "%Y-%m-%d")
+    MAPA_DIAS = {
+        0: "LUNES",
+        1: "MARTES",
+        2: "MIÉRCOLES",
+        3: "JUEVES",
+        4: "VIERNES",
+        5: "SÁBADO",
+        6: "DOMINGO",
+    }
+    dia_str = MAPA_DIAS.get(dt_fecha.weekday(), "")
 
-  def vaciar_base_de_datos(self):
-    with self.get_connection() as conn:
-      cursor = conn.cursor()
-      cursor.execute("DELETE FROM horarios")
-      cursor.execute("DELETE FROM config_semestre")
-      conn.commit()
+    # Reemplazar o eliminar traslapes directos si existen
+    cursor.execute(
+        """
+            DELETE FROM horarios
+            WHERE espacio = ? AND fecha = ? AND hora_inicio < ? AND hora_fin > ?
+        """,
+        (espacio, fecha, hora_fin, hora_ini),
+    )
+
+    cursor.execute(
+        """
+            INSERT INTO horarios (espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, asignatura, docente, tipo_evento, observacion)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'evento', ?)
+        """,
+        (
+            espacio,
+            fecha,
+            dt_fecha.strftime("%B").upper(),
+            dt_fecha.day,
+            dia_str,
+            hora_ini,
+            hora_fin,
+            asignatura,
+            docente,
+            observacion,
+        ),
+    )
+
+    conn.commit()
+    conn.close()

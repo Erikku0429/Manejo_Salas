@@ -7,14 +7,19 @@ from controllers.horario_controller import HorarioController
 from models.database import DatabaseModel
 
 st.set_page_config(
-    page_title="Consulta y Gestión de Aulas Universitarias",
-    page_icon="🏫",
+    page_title="Consulta Aulas DTE",
+    page_icon="sources\\lg_upn.png",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
 db = DatabaseModel()
 controller = HorarioController(db)
+
+ADMIN_USER = "admin"
+ADMIN_PASSWORD_HASH = (
+    "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9"
+)
 
 
 def normalizar_texto(texto):
@@ -40,12 +45,29 @@ def generar_estilo_color_materia(nombre_asignatura):
   )
 
 
+# Función Callback para Resetear Filtros sin Violación de Estado en Streamlit
+def resetear_filtros_callback():
+  st.session_state["input_asig"] = ""
+  st.session_state["input_doc"] = ""
+  st.session_state["input_salon"] = "TODOS"
+  st.session_state["input_horas"] = (7, 19)
+
+
 # -----------------------------------------------------------------------------
-# ESTILOS CSS CON TRANSICIÓN DE EXPANSIÓN SÚTIL Y RÁPIDA (CLIC / FOCO)
+# ESTILOS CSS CON TÍTULO CENTRADO Y TRANSICIONES INTERACTIVAS
 # -----------------------------------------------------------------------------
 st.markdown(
     """
     <style>
+    .main-title {
+        font-size: 2.3rem;
+        font-weight: 800;
+        margin-top: 0px;
+        margin-bottom: 4px;
+        color: #f8fafc;
+        text-align: center;
+    }
+
     .day-header-box {
         height: 65px;
         display: flex;
@@ -173,7 +195,8 @@ if not st.session_state.authenticated:
     submit_login = st.form_submit_button("Iniciar Sesión", type="primary")
 
     if submit_login:
-      if user_input == "admin" and pass_input == "admin123":
+      pass_hash = hashlib.sha256(pass_input.encode("utf-8")).hexdigest()
+      if user_input == ADMIN_USER and pass_hash == ADMIN_PASSWORD_HASH:
         st.session_state.authenticated = True
         st.sidebar.success("🔑 Sesión iniciada correctamente.")
         st.rerun()
@@ -221,12 +244,33 @@ def mostrar_popup_vaciar_db():
 # Evaluación de Vigencia del Semestre
 es_vigente, msj_vigencia, f_ini_db, f_fin_db = db.obtener_vigencia_semestre()
 
-st.title("🏫 Consulta de Aulas Universitarias")
+# -----------------------------------------------------------------------------
+# ENCABEZADO CENTRADO CON TÍTULO Y PERIODO
+# -----------------------------------------------------------------------------
+st.markdown(
+    '<h1 class="main-title">Consulta Aulas DTE</h1>', unsafe_allow_html=True
+)
+
+if f_ini_db:
+  semestre_num = 1 if f_ini_db.month <= 6 else 2
+  periodo_str = f"{f_ini_db.year}-{semestre_num}"
+else:
+  periodo_str = "SIN CARGUE"
 
 if es_vigente:
-  st.caption(f"🟢 **Estado:** {msj_vigencia}")
+  st.caption(
+      f"<div style='text-align: center; width: 100%;'>🟢 <b>Semestre"
+      f" Activo:</b> {periodo_str} ({f_ini_db} al {f_fin_db})</div>",
+      unsafe_allow_html=True,
+  )
 else:
-  st.warning(f"⚠️ **Atención:** {msj_vigencia}")
+  st.caption(
+      f"<div style='text-align: center; width: 100%;'>⚠️ <b>Estado:</b>"
+      f" {msj_vigencia}</div>",
+      unsafe_allow_html=True,
+  )
+
+st.markdown("---")
 
 if st.session_state.authenticated:
   tabs = st.tabs([
@@ -242,7 +286,7 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# HELPER DE RENDERIZADO MATRICIAL SIMÉTRICO
+# HELPER DE RENDERIZADO MATRICIAL SIMÉTRICO DINÁMICO
 # -----------------------------------------------------------------------------
 def renderizar_matriz_semanal_aula(
     df_aula,
@@ -252,16 +296,29 @@ def renderizar_matriz_semanal_aula(
     nombre_aula=None,
     ocultar_disponibles=False,
     solo_disponibles=False,
+    rango_horas=(7, 19),
 ):
+  MAPA_DIAS_INDEX = {
+      "LUNES": 0,
+      "MARTES": 1,
+      "MIÉRCOLES": 2,
+      "JUEVES": 3,
+      "VIERNES": 4,
+      "SÁBADO": 5,
+      "DOMINGO": 6,
+  }
+
   cols_dias = st.columns(len(dias_semana_nombres))
   salon_upper = str(nombre_aula).upper() if nombre_aula else None
+  hora_min_filtro, hora_max_filtro = rango_horas
 
-  for idx_d, dia_nom in enumerate(dias_semana_nombres):
+  for idx_col, dia_nom in enumerate(dias_semana_nombres):
+    idx_d = MAPA_DIAS_INDEX.get(dia_nom.upper(), idx_col)
     fecha_dia_actual = lunes_semana + datetime.timedelta(days=idx_d)
     dia_norm = normalizar_texto(dia_nom)
     es_dia_hoy = fecha_dia_actual == fecha_hoy
 
-    with cols_dias[idx_d]:
+    with cols_dias[idx_col]:
       header_class = (
           "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
       )
@@ -287,8 +344,8 @@ def renderizar_matriz_semanal_aula(
           df_aula["dia"].apply(normalizar_texto) == dia_norm
       ].sort_values(by="hora_inicio")
 
-      hora_cursor = 7
-      hora_limite = 19
+      hora_cursor = hora_min_filtro
+      hora_limite = hora_max_filtro
 
       if clases_dia.empty:
         if not ocultar_disponibles or solo_disponibles:
@@ -297,18 +354,20 @@ def renderizar_matriz_semanal_aula(
               "<div class='card-disponible' tabindex='0'><div"
               " style='font-weight:700; font-size:0.85rem;'>🟢"
               " DISPONIBLE</div><div class='class-time' style='margin-top:3px;'>⏰"
-              f" 07:00 - 19:00{salon_txt}</div></div>"
+              f" {hora_cursor:02d}:00 - {hora_limite:02d}:00{salon_txt}</div></div>"
           )
           st.markdown(card_free, unsafe_allow_html=True)
       else:
         for _, c in clases_dia.iterrows():
           h_ini = int(c["hora_inicio"])
           h_fin = int(c["hora_fin"])
+
+          h_ini_vis = max(h_ini, hora_min_filtro)
+          h_fin_vis = min(h_fin, hora_max_filtro)
           salon_row = str(c["espacio"]).upper()
 
-          # Hueco libre previo
           if (
-              h_ini > hora_cursor
+              h_ini_vis > hora_cursor
               and not ocultar_disponibles
               or solo_disponibles
           ):
@@ -317,11 +376,10 @@ def renderizar_matriz_semanal_aula(
                 " style='font-weight:700; font-size:0.8rem;'>🟢"
                 " DISPONIBLE</div><div class='class-time'"
                 f" style='margin-top:3px;'>⏰ {hora_cursor:02d}:00 -"
-                f" {h_ini:02d}:00 | {salon_row}</div></div>"
+                f" {h_ini_vis:02d}:00 | {salon_row}</div></div>"
             )
             st.markdown(card_prev, unsafe_allow_html=True)
 
-          # Dibujar clase asignada
           if not solo_disponibles:
             tipo_ev = str(c.get("tipo_evento", "")).lower()
             es_evento = tipo_ev == "evento"
@@ -352,9 +410,8 @@ def renderizar_matriz_semanal_aula(
             )
             st.markdown(card_class_html, unsafe_allow_html=True)
 
-          hora_cursor = max(hora_cursor, h_fin)
+          hora_cursor = max(hora_cursor, h_fin_vis)
 
-        # Hueco libre posterior
         if (
             hora_cursor < hora_limite
             and not ocultar_disponibles
@@ -372,7 +429,7 @@ def renderizar_matriz_semanal_aula(
 
 
 # -----------------------------------------------------------------------------
-# TAB 1: CONSULTA DE HORARIOS PÚBLICA
+# TAB 1: CONSULTA DE HORARIOS PÚBLICA CON FILTROS AVANZADOS
 # -----------------------------------------------------------------------------
 with tab_horarios:
   col_h1, col_h2 = st.columns([3, 1])
@@ -391,25 +448,60 @@ with tab_horarios:
         " cargue del semestre."
     )
   else:
-    col_f1, col_f2, col_f3 = st.columns([3, 3, 3])
+    # Inicializar valores en session_state ANTES de crear los widgets
+    if "input_asig" not in st.session_state:
+      st.session_state["input_asig"] = ""
+    if "input_doc" not in st.session_state:
+      st.session_state["input_doc"] = ""
+    if "input_salon" not in st.session_state:
+      st.session_state["input_salon"] = "TODOS"
+    if "input_horas" not in st.session_state:
+      st.session_state["input_horas"] = (7, 19)
+
+    col_f1, col_f2, col_f3, col_f4 = st.columns([3, 3, 3, 2])
+
+    salones_unicos = sorted(
+        [str(s).upper() for s in df_horarios["espacio"].unique()]
+    )
 
     with col_f1:
-      salones_unicos = sorted([
-          str(s).upper() for s in df_horarios["espacio"].unique()
-      ])
       salon_sel = st.selectbox(
-          "Filtrar por Salón / Aula:", ["TODOS"] + salones_unicos
+          "Filtrar por Salón / Aula:",
+          ["TODOS"] + salones_unicos,
+          key="input_salon",
       )
 
     with col_f2:
       busqueda_asig = st.text_input(
-          "🔍 Buscar por Asignatura:", placeholder="Ej. programacion o disponible"
+          "🔍 Buscar por Asignatura:",
+          placeholder="Ej. programacion o disponible",
+          key="input_asig",
       )
 
     with col_f3:
       busqueda_doc = st.text_input(
-          "👨‍🏫 Buscar por Docente:", placeholder="Ej. nicolas"
+          "👨‍🏫 Buscar por Docente:",
+          placeholder="Ej. nicolas",
+          key="input_doc",
       )
+
+    with col_f4:
+      st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
+      st.button(
+          "🧹 Limpiar Filtros",
+          on_click=resetear_filtros_callback,
+          use_container_width=True,
+      )
+
+    st.markdown("⏰ **Filtrar Franja Horaria (Horas exactas):**")
+    rango_horas = st.slider(
+        "Seleccionar rango de horas:",
+        min_value=7,
+        max_value=19,
+        format="%d:00 hrs",
+        label_visibility="collapsed",
+        key="input_horas",
+    )
 
     fecha_hoy = datetime.date.today()
     lunes_semana = fecha_hoy - datetime.timedelta(days=fecha_hoy.weekday())
@@ -435,76 +527,121 @@ with tab_horarios:
         q_asig.strip() or q_doc.strip()
     ) and not solo_disponibles
 
+    # Filtrado exacto / parcial sin residuo
     if hay_busqueda_activa:
       if q_asig.strip():
         df_filtered = df_filtered[
             df_filtered["asignatura"]
             .apply(normalizar_texto)
-            .str.contains(q_asig)
+            .str.contains(q_asig, regex=False)
         ]
       if q_doc.strip():
         df_filtered = df_filtered[
-            df_filtered["docente"].apply(normalizar_texto).str.contains(q_doc)
+            df_filtered["docente"]
+            .apply(normalizar_texto)
+            .str.contains(q_doc, regex=False)
         ]
 
-    hay_clases_sabado = "sabado" in df_filtered["dia"].apply(
-        normalizar_texto
-    ).values or "sábado" in df_filtered["dia"].apply(normalizar_texto).values
-    dias_semana_nombres = (
-        ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"]
-        if hay_clases_sabado
-        else ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES"]
-    )
+    h_min, h_max = rango_horas
+    df_filtered = df_filtered[
+        (df_filtered["hora_inicio"] < h_max)
+        & (df_filtered["hora_fin"] > h_min)
+    ]
+
+    DIAS_ORDENADOS = [
+        "LUNES",
+        "MARTES",
+        "MIÉRCOLES",
+        "JUEVES",
+        "VIERNES",
+        "SÁBADO",
+    ]
+
+    if hay_busqueda_activa:
+      dias_con_clase = (
+          df_filtered["dia"].apply(lambda x: str(x).upper()).unique()
+      )
+      dias_semana_nombres = [
+          d
+          for d in DIAS_ORDENADOS
+          if normalizar_texto(d)
+          in [normalizar_texto(dc) for dc in dias_con_clase]
+      ]
+    else:
+      hay_clases_sabado = "sabado" in df_filtered["dia"].apply(
+          normalizar_texto
+      ).values or "sábado" in df_filtered["dia"].apply(normalizar_texto).values
+      dias_semana_nombres = (
+          ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"]
+          if hay_clases_sabado
+          else ["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES"]
+      )
 
     fin_txt = (
         f"{sabado_semana.strftime('%Y-%m-%d')} (Sábado)"
-        if hay_clases_sabado
+        if "SÁBADO" in dias_semana_nombres
         else (
             f"{(lunes_semana + datetime.timedelta(days=4)).strftime('%Y-%m-%d')}"
             " (Viernes)"
         )
     )
+
+    filtro_hora_activo = rango_horas != (7, 19)
     st.markdown(
         f"##### 📆 **Semana Actual:** Del **{lunes_semana.strftime('%Y-%m-%d')}**"
         f" (Lunes) al **{fin_txt}**"
+        + (
+            f" | ⏰ **Franja:** {rango_horas[0]}:00 - {rango_horas[1]}:00"
+            if filtro_hora_activo
+            else ""
+        )
     )
 
-    if (
-        salon_sel == "TODOS"
-        and not hay_busqueda_activa
-        and not solo_disponibles
-    ):
-      for salon in salones_unicos:
-        df_aula = df_filtered[
-            df_filtered["espacio"].apply(normalizar_texto)
-            == normalizar_texto(salon)
-        ]
-        with st.expander(f"🏛️ **{salon}**", expanded=True):
-          renderizar_matriz_semanal_aula(
-              df_aula,
-              dias_semana_nombres,
-              lunes_semana,
-              fecha_hoy,
-              nombre_aula=salon,
-              ocultar_disponibles=hay_busqueda_activa,
-              solo_disponibles=solo_disponibles,
-          )
-    else:
-      if salon_sel != "TODOS":
-        df_filtered = df_filtered[
-            df_filtered["espacio"].apply(normalizar_texto)
-            == normalizar_texto(salon_sel)
-        ]
-
-      renderizar_matriz_semanal_aula(
-          df_filtered,
-          dias_semana_nombres,
-          lunes_semana,
-          fecha_hoy,
-          nombre_aula=salon_sel if salon_sel != "TODOS" else None,
-          ocultar_disponibles=hay_busqueda_activa,
-          solo_disponibles=solo_disponibles,
+    if hay_busqueda_activa and df_filtered.empty:
+      st.warning(
+          "⚠️ **No se encontraron resultados.** Por favor verifica lo que"
+          " escribiste o limpia los filtros."
       )
+    else:
+      if (
+          salon_sel == "TODOS"
+          and not hay_busqueda_activa
+          and not solo_disponibles
+          and not filtro_hora_activo
+      ):
+        for salon in salones_unicos:
+          df_aula = df_filtered[
+              df_filtered["espacio"].apply(normalizar_texto)
+              == normalizar_texto(salon)
+          ]
+          with st.expander(f"🏛️ **{salon}**", expanded=True):
+            renderizar_matriz_semanal_aula(
+                df_aula,
+                dias_semana_nombres,
+                lunes_semana,
+                fecha_hoy,
+                nombre_aula=salon,
+                ocultar_disponibles=hay_busqueda_activa,
+                solo_disponibles=solo_disponibles,
+                rango_horas=rango_horas,
+            )
+      else:
+        if salon_sel != "TODOS":
+          df_filtered = df_filtered[
+              df_filtered["espacio"].apply(normalizar_texto)
+              == normalizar_texto(salon_sel)
+          ]
+
+        renderizar_matriz_semanal_aula(
+            df_filtered,
+            dias_semana_nombres,
+            lunes_semana,
+            fecha_hoy,
+            nombre_aula=salon_sel if salon_sel != "TODOS" else None,
+            ocultar_disponibles=hay_busqueda_activa,
+            solo_disponibles=solo_disponibles,
+            rango_horas=rango_horas,
+        )
 
 # -----------------------------------------------------------------------------
 # TAB 2 & 3: ADMINISTRACIÓN
@@ -614,23 +751,25 @@ if st.session_state.authenticated and tab_cargue:
 
         except ValueError as val_err:
           err_msg = str(val_err)
-          st.error("🚨 **Error de Formato en el Archivo Excel Subido**")
-          if "PESTAÑA_MISSING" in err_msg:
-            st.warning(
-                "El libro de Excel no contiene la pestaña obligatoria"
-                " **`BD_Calendario_Semestre`**."
-            )
-          elif "COLUMNAS_MISSING" in err_msg:
-            cols_fal = err_msg.split(":")[1]
-            st.warning(f"Faltan las siguientes columnas obligatorias: {cols_fal}")
+          st.error(
+              "🚨 **Error de Formato:** El archivo subido no cumple con"
+              " ninguno de los dos formatos soportados."
+          )
 
           st.markdown(
               """
                     <div class="excel-template-box">
-                    <b>Nombre de Pestaña Obligatorio:</b> BD_Calendario_Semestre<br><br>
+                    <h4>📋 Formatos de Excel Compatibles:</h4>
+                    
+                    <b>1. Formato Cuadrícula de Coordinación (Conversión Automática)</b><br>
+                    • Libro con la matriz de horarios distribuida por franjas horarias (7 a 19) y salones (E105, B222).<br>
+                    • La fila inicial de cada salón debe listar los días de la semana y la columna A las horas en formato entero.<br><br>
+                    
+                    <b>2. Formato Estructurado de Base de Datos</b><br>
+                    • Nombre obligatorio de pestaña: <b><code>BD_Calendario_Semestre</code></b><br>
+                    • Columnas requeridas:<br>
                     | ESPACIO / SALÓN | DÍA | HORA INICIO (24H) | HORA FIN (24H) | ASIGNATURA | DOCENTE |<br>
-                    |-------------------|-------|-------------------|----------------|------------|---------|<br>
-                    | E105 (SALA CAD)   | LUNES | 10                | 12             | PROGRAMACION | NICOLAS |
+                    | E105 (SALA CAD) | LUNES | 10 | 12 | PROGRAMACION | NICOLAS |
                     </div>
                 """,
               unsafe_allow_html=True,
