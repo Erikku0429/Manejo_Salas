@@ -111,6 +111,7 @@ st.markdown(
         align-items: center;
         color: #a7f3d0;
         box-sizing: border-box;
+        text-align: center;
     }
 
     .class-title {
@@ -234,17 +235,19 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# HELPER DE RENDERIZADO MATRICIAL SIMÉTRICO CON HTML LIMPIO
+# HELPER DE RENDERIZADO MATRICIAL SIMÉTRICO
 # -----------------------------------------------------------------------------
 def renderizar_matriz_semanal_aula(
     df_aula,
     dias_semana_nombres,
     lunes_semana,
     fecha_hoy,
+    nombre_aula=None,
     ocultar_disponibles=False,
     solo_disponibles=False,
 ):
   cols_dias = st.columns(len(dias_semana_nombres))
+  salon_upper = str(nombre_aula).upper() if nombre_aula else None
 
   for idx_d, dia_nom in enumerate(dias_semana_nombres):
     fecha_dia_actual = lunes_semana + datetime.timedelta(days=idx_d)
@@ -283,17 +286,19 @@ def renderizar_matriz_semanal_aula(
 
       if clases_dia.empty:
         if not ocultar_disponibles or solo_disponibles:
+          salon_txt = f" | {salon_upper}" if salon_upper else ""
           card_free = (
               "<div class='card-disponible'><div style='font-weight:700;"
-              " font-size:0.85rem;'>🟢 DISPONIBLE</div><div"
-              " style='font-size:0.72rem; margin-top:2px;'>07:00 - 19:00"
-              " Libre</div></div>"
+              " font-size:0.85rem;'>🟢 DISPONIBLE</div><div class='class-time'"
+              " style='margin-top:3px;'>⏰ 07:00 - 19:00"
+              f"{salon_txt}</div></div>"
           )
           st.markdown(card_free, unsafe_allow_html=True)
       else:
         for _, c in clases_dia.iterrows():
           h_ini = int(c["hora_inicio"])
           h_fin = int(c["hora_fin"])
+          salon_row = str(c["espacio"]).upper()
 
           # Hueco libre previo
           if (
@@ -304,8 +309,8 @@ def renderizar_matriz_semanal_aula(
             card_prev = (
                 "<div class='card-disponible'><div style='font-weight:700;"
                 " font-size:0.8rem;'>🟢 DISPONIBLE</div><div"
-                f" style='font-size:0.72rem; margin-top:2px;'>⏰ {hora_cursor:02d}:00"
-                f" - {h_ini:02d}:00</div></div>"
+                " class='class-time' style='margin-top:3px;'>⏰"
+                f" {hora_cursor:02d}:00 - {h_ini:02d}:00 | {salon_row}</div></div>"
             )
             st.markdown(card_prev, unsafe_allow_html=True)
 
@@ -314,7 +319,6 @@ def renderizar_matriz_semanal_aula(
             es_evento = c["tipo_evento"].lower() == "evento"
             asig_upper = str(c["asignatura"]).upper()
             doc_upper = str(c["docente"]).upper()
-            salon_upper = str(c["espacio"]).upper()
             obs_txt = (
                 f"<br><small><b>Obs:</b> {c['observacion'].upper()}</small>"
                 if c["observacion"]
@@ -331,7 +335,7 @@ def renderizar_matriz_semanal_aula(
             card_class_html = (
                 f"<div class='{class_attr}' style='{style_card}'><div"
                 f" class='class-time'>⏰ {h_ini:02d}:00 - {h_fin:02d}:00 |"
-                f" {salon_upper}</div><div class='class-title'"
+                f" {salon_row}</div><div class='class-title'"
                 f" title='{asig_upper}'>{asig_upper}</div><div"
                 f" class='class-doc' title='{doc_upper}'>👨‍🏫"
                 f" {doc_upper}{obs_txt}</div></div>"
@@ -349,8 +353,9 @@ def renderizar_matriz_semanal_aula(
           card_post = (
               "<div class='card-disponible'><div style='font-weight:700;"
               " font-size:0.8rem;'>🟢 DISPONIBLE</div><div"
-              f" style='font-size:0.72rem; margin-top:2px;'>⏰ {hora_cursor:02d}:00"
-              f" - {hora_limite:02d}:00</div></div>"
+              " class='class-time' style='margin-top:3px;'>⏰"
+              f" {hora_cursor:02d}:00 - {hora_limite:02d}:00 |"
+              f" {salon_upper if salon_upper else 'VARIAS AULAS'}</div></div>"
           )
           st.markdown(card_post, unsafe_allow_html=True)
 
@@ -453,7 +458,12 @@ with tab_horarios:
         f" (Lunes) al **{fin_txt}**"
     )
 
-    if salon_sel == "TODOS":
+    # VISTA CONDICIONAL: Si se filtra por asignatura, docente o disponible, SE MUESTRA DIRECTAMENTE SIN EXPANDERS
+    if (
+        salon_sel == "TODOS"
+        and not hay_busqueda_activa
+        and not solo_disponibles
+    ):
       for salon in salones_unicos:
         df_aula = df_filtered[
             df_filtered["espacio"].apply(normalizar_texto)
@@ -465,19 +475,23 @@ with tab_horarios:
               dias_semana_nombres,
               lunes_semana,
               fecha_hoy,
+              nombre_aula=salon,
               ocultar_disponibles=hay_busqueda_activa,
               solo_disponibles=solo_disponibles,
           )
     else:
-      df_aula = df_filtered[
-          df_filtered["espacio"].apply(normalizar_texto)
-          == normalizar_texto(salon_sel)
-      ]
+      if salon_sel != "TODOS":
+        df_filtered = df_filtered[
+            df_filtered["espacio"].apply(normalizar_texto)
+            == normalizar_texto(salon_sel)
+        ]
+
       renderizar_matriz_semanal_aula(
-          df_aula,
+          df_filtered,
           dias_semana_nombres,
           lunes_semana,
           fecha_hoy,
+          nombre_aula=salon_sel if salon_sel != "TODOS" else None,
           ocultar_disponibles=hay_busqueda_activa,
           solo_disponibles=solo_disponibles,
       )
