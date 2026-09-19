@@ -119,14 +119,6 @@ st.markdown(
         transition: transform 0.18s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.18s ease-in-out, z-index 0s 0.18s;
     }
 
-    .class-card:focus, .card-disponible:focus,
-    .class-card:active, .card-disponible:active {
-        transform: scale(1.035);
-        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.5);
-        z-index: 20;
-        transition: transform 0.18s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.18s ease-in-out;
-    }
-
     .class-card-evento {
         background: linear-gradient(135deg, #451a03 0%, #1c0901 100%) !important;
         border-left: 4px solid #f59e0b !important;
@@ -147,12 +139,6 @@ st.markdown(
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-    }
-
-    .class-card:focus .class-title,
-    .class-card:focus .class-doc {
-        white-space: normal !important;
-        overflow: visible !important;
     }
 
     .class-doc {
@@ -231,7 +217,7 @@ def mostrar_popup_exito(total_registros, f_ini, f_fin):
       f"• **Sesiones Proyectadas:** **{total_registros} clases** registradas."
   )
   if st.button(
-      "Aceptar",
+      "Ir a Consulta de Horarios ➡️",
       type="primary",
       on_click=ir_a_pestaña,
       args=("📅 Consulta de Horarios (Público / QR)",),
@@ -252,7 +238,7 @@ def mostrar_popup_evento_exito(
       f"• **Responsable:** **{responsable}**"
   )
   if st.button(
-      "Aceptar",
+      "Ir a Próximos Eventos ➡️",
       type="primary",
       on_click=ir_a_pestaña,
       args=("📢 Próximos Eventos",),
@@ -330,7 +316,6 @@ if "active_tab" not in st.session_state or st.session_state[
 ] not in lista_tabs:
   st.session_state["active_tab"] = lista_tabs[0]
 
-# Renderizado del conjunto de pestañas dinámicas
 tabs = st.tabs(lista_tabs)
 
 if st.session_state.authenticated:
@@ -346,7 +331,7 @@ else:
 
 
 # -----------------------------------------------------------------------------
-# HELPER DE RENDERIZADO MATRICIAL SIMÉTRICO DINÁMICO
+# HELPER DE RENDERIZADO MATRICIAL INTERACTIVO CON EDICIÓN RÁPIDA
 # -----------------------------------------------------------------------------
 def renderizar_matriz_semanal_aula(
     df_aula,
@@ -371,6 +356,7 @@ def renderizar_matriz_semanal_aula(
   cols_dias = st.columns(len(dias_semana_nombres))
   salon_upper = str(nombre_aula).upper() if nombre_aula else None
   hora_min_filtro, hora_max_filtro = rango_horas
+  es_admin = st.session_state.authenticated
 
   for idx_col, dia_nom in enumerate(dias_semana_nombres):
     idx_d = MAPA_DIAS_INDEX.get(dia_nom.upper(), idx_col)
@@ -410,13 +396,68 @@ def renderizar_matriz_semanal_aula(
       if clases_dia.empty:
         if not ocultar_disponibles or solo_disponibles:
           salon_txt = f" | {salon_upper}" if salon_upper else ""
-          card_free = (
-              "<div class='card-disponible' tabindex='0'><div"
-              " style='font-weight:700; font-size:0.85rem;'>🟢"
-              " DISPONIBLE</div><div class='class-time' style='margin-top:3px;'>⏰"
-              f" {hora_cursor:02d}:00 - {hora_limite:02d}:00{salon_txt}</div></div>"
-          )
-          st.markdown(card_free, unsafe_allow_html=True)
+          if es_admin and salon_upper:
+            # Popover para asignación directa en admin
+            with st.popover(
+                f"🟢 DISPONIBLE\n⏰ {hora_cursor:02d}:00 - {hora_limite:02d}:00",
+                use_container_width=True,
+            ):
+              st.markdown(
+                  f"**➕ Asignar Clase / Materia en {salon_upper}**\n"
+                  f"*Día: {dia_nom} ({fecha_dia_actual})*"
+              )
+              f_asig = st.text_input(
+                  "Asignatura:",
+                  key=f"pop_a_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+              )
+              f_doc = st.text_input(
+                  "Docente:",
+                  key=f"pop_d_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+              )
+              col_p1, col_p2 = st.columns(2)
+              f_h1 = col_p1.number_input(
+                  "Hora Inicio:",
+                  min_value=7,
+                  max_value=18,
+                  value=hora_cursor,
+                  key=f"pop_h1_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+              )
+              f_h2 = col_p2.number_input(
+                  "Hora Fin:",
+                  min_value=8,
+                  max_value=19,
+                  value=min(hora_cursor + 2, 19),
+                  key=f"pop_h2_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+              )
+
+              if st.button(
+                  "💾 Asignar Espacio",
+                  key=f"btn_save_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+                  type="primary",
+              ):
+                if f_asig.strip() and f_doc.strip():
+                  db.agregar_evento_especial(
+                      salon_upper,
+                      fecha_dia_actual.strftime("%Y-%m-%d"),
+                      f_h1,
+                      f_h2,
+                      f_asig,
+                      f_doc,
+                      "Asignación rápida de espacio",
+                  )
+                  st.success("¡Espacio asignado!")
+                  st.rerun()
+                else:
+                  st.error("Ingresa asignatura y docente.")
+          else:
+            card_free = (
+                "<div class='card-disponible' tabindex='0'><div"
+                " style='font-weight:700; font-size:0.85rem;'>🟢"
+                " DISPONIBLE</div><div class='class-time'"
+                f" style='margin-top:3px;'>⏰ {hora_cursor:02d}:00 -"
+                f" {hora_limite:02d}:00{salon_txt}</div></div>"
+            )
+            st.markdown(card_free, unsafe_allow_html=True)
       else:
         for _, c in clases_dia.iterrows():
           h_ini = int(c["hora_inicio"])
@@ -431,14 +472,45 @@ def renderizar_matriz_semanal_aula(
               and not ocultar_disponibles
               or solo_disponibles
           ):
-            card_prev = (
-                "<div class='card-disponible' tabindex='0'><div"
-                " style='font-weight:700; font-size:0.8rem;'>🟢"
-                " DISPONIBLE</div><div class='class-time'"
-                f" style='margin-top:3px;'>⏰ {hora_cursor:02d}:00 -"
-                f" {h_ini_vis:02d}:00 | {salon_row}</div></div>"
-            )
-            st.markdown(card_prev, unsafe_allow_html=True)
+            if es_admin:
+              with st.popover(
+                  f"🟢 DISPONIBLE\n⏰ {hora_cursor:02d}:00 - {h_ini_vis:02d}:00",
+                  use_container_width=True,
+              ):
+                st.markdown(f"**➕ Asignar Clase en {salon_row}**")
+                f_asig = st.text_input(
+                    "Asignatura:",
+                    key=f"pop_gap_a_{salon_row}_{fecha_dia_actual}_{hora_cursor}",
+                )
+                f_doc = st.text_input(
+                    "Docente:",
+                    key=f"pop_gap_d_{salon_row}_{fecha_dia_actual}_{hora_cursor}",
+                )
+                if st.button(
+                    "💾 Guardar",
+                    key=f"btn_gap_save_{salon_row}_{fecha_dia_actual}_{hora_cursor}",
+                    type="primary",
+                ):
+                  if f_asig.strip():
+                    db.agregar_evento_especial(
+                        salon_row,
+                        fecha_dia_actual.strftime("%Y-%m-%d"),
+                        hora_cursor,
+                        h_ini_vis,
+                        f_asig,
+                        f_doc,
+                        "Clase agregada",
+                    )
+                    st.rerun()
+            else:
+              card_prev = (
+                  "<div class='card-disponible' tabindex='0'><div"
+                  " style='font-weight:700; font-size:0.8rem;'>🟢"
+                  " DISPONIBLE</div><div class='class-time'"
+                  f" style='margin-top:3px;'>⏰ {hora_cursor:02d}:00 -"
+                  f" {h_ini_vis:02d}:00 | {salon_row}</div></div>"
+              )
+              st.markdown(card_prev, unsafe_allow_html=True)
 
           if not solo_disponibles:
             tipo_ev = str(c.get("tipo_evento", "")).lower()
@@ -477,15 +549,46 @@ def renderizar_matriz_semanal_aula(
             and not ocultar_disponibles
             or solo_disponibles
         ):
-          card_post = (
-              "<div class='card-disponible' tabindex='0'><div"
-              " style='font-weight:700; font-size:0.8rem;'>🟢"
-              " DISPONIBLE</div><div class='class-time'"
-              " style='margin-top:3px;'>⏰"
-              f" {hora_cursor:02d}:00 - {hora_limite:02d}:00 |"
-              f" {salon_upper if salon_upper else 'VARIAS AULAS'}</div></div>"
-          )
-          st.markdown(card_post, unsafe_allow_html=True)
+          if es_admin and salon_upper:
+            with st.popover(
+                f"🟢 DISPONIBLE\n⏰ {hora_cursor:02d}:00 - {hora_limite:02d}:00",
+                use_container_width=True,
+            ):
+              st.markdown(f"**➕ Asignar Clase en {salon_upper}**")
+              f_asig = st.text_input(
+                  "Asignatura:",
+                  key=f"pop_post_a_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+              )
+              f_doc = st.text_input(
+                  "Docente:",
+                  key=f"pop_post_d_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+              )
+              if st.button(
+                  "💾 Guardar",
+                  key=f"btn_post_save_{salon_upper}_{fecha_dia_actual}_{hora_cursor}",
+                  type="primary",
+              ):
+                if f_asig.strip():
+                  db.agregar_evento_especial(
+                      salon_upper,
+                      fecha_dia_actual.strftime("%Y-%m-%d"),
+                      hora_cursor,
+                      hora_limite,
+                      f_asig,
+                      f_doc,
+                      "Clase agregada",
+                  )
+                  st.rerun()
+          else:
+            card_post = (
+                "<div class='card-disponible' tabindex='0'><div"
+                " style='font-weight:700; font-size:0.8rem;'>🟢"
+                " DISPONIBLE</div><div class='class-time'"
+                " style='margin-top:3px;'>⏰"
+                f" {hora_cursor:02d}:00 - {hora_limite:02d}:00 |"
+                f" {salon_upper if salon_upper else 'VARIAS AULAS'}</div></div>"
+            )
+            st.markdown(card_post, unsafe_allow_html=True)
 
 
 # -----------------------------------------------------------------------------
@@ -948,10 +1051,11 @@ if st.session_state.authenticated and tab_eventos_adm:
     )
 
     ev_asig = st.text_input(
-        "5️⃣ Nombre del Evento:", placeholder="Ej. CONFERENCIA IA"
+        "5️⃣ Nombre del Evento / Clase Faltante:",
+        placeholder="Ej. CONTINGENCIA MATEMATICAS",
     )
     ev_doc = st.text_input(
-        "6️⃣ Responsable del Evento:", placeholder="Ej. ING. GARCÍA"
+        "6️⃣ Responsable / Docente:", placeholder="Ej. ING. GARCÍA"
     )
 
     fecha_ev_str = ev_fecha.strftime("%Y-%m-%d")
@@ -996,12 +1100,12 @@ if st.session_state.authenticated and tab_eventos_adm:
       )
 
     st.markdown("---")
-    if st.button("💾 Guardar y Asignar Evento", type="primary"):
+    if st.button("💾 Guardar y Asignar Espacio", type="primary"):
       if ev_h_fin <= ev_h_ini:
         st.error("La Hora Fin debe ser mayor a la Hora Inicio.")
       elif not ev_asig.strip() or not ev_doc.strip():
         st.error(
-            "Debes ingresar el Nombre del Evento y el Responsable."
+            "Debes ingresar el Nombre del Evento / Clase y el Responsable."
         )
       elif requiere_obs and not ev_obs.strip():
         st.error(
