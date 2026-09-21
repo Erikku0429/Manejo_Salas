@@ -39,9 +39,10 @@ def generar_estilo_color_materia(nombre_asignatura):
   hash_hex = hashlib.md5(nombre_norm.encode("utf-8")).hexdigest()
   hue = int(hash_hex[:4], 16) % 360
 
-  bg_color = f"hsl({hue}, 65%, 18%)"
-  border_color = f"hsl({hue}, 80%, 55%)"
-  text_color = f"hsl({hue}, 90%, 85%)"
+  # Fondo con contraste equilibrado y texto blanco garantizado
+  bg_color = f"hsl({hue}, 60%, 22%)"
+  border_color = f"hsl({hue}, 85%, 50%)"
+  text_color = "#ffffff"
 
   return (
       f"background: {bg_color}; border-left: 4px solid {border_color}; color:"
@@ -77,24 +78,26 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
 
 
 # -----------------------------------------------------------------------------
-# 3. ESTILOS CSS CON TÍTULO CENTRADO Y TARJETAS OPTIMIZADAS
+# 3. ESTILOS CSS ADAPTATIVOS (MODO CLARO Y MODO OSCURO)
 # -----------------------------------------------------------------------------
 st.markdown(
     """
     <style>
+    /* Título principal adaptativo */
     .main-title {
         font-size: 2.3rem;
         font-weight: 800;
         margin-top: 0px;
         margin-bottom: 4px;
-        color: #f8fafc;
+        color: var(--text-color, #1e293b);
         text-align: center;
     }
 
+    /* Cajas de cabecera de salones y días */
     .day-header-box {
         border-radius: 8px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        background: rgba(150, 150, 150, 0.08);
+        border: 1px solid rgba(150, 150, 150, 0.25);
         margin-bottom: 12px;
         box-sizing: border-box;
     }
@@ -105,19 +108,23 @@ st.markdown(
         box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
     }
 
+    /* Títulos de salón y días en alto contraste */
     .day-title {
         font-weight: 800;
-        font-size: 1.05rem;
+        font-size: 0.85rem;
         margin: 0;
         line-height: 1.2;
+        color: var(--text-color, #0f172a) !important;
     }
 
     .day-date {
         font-size: 0.82rem;
-        opacity: 0.8;
+        opacity: 0.85;
         margin-top: 2px;
+        color: var(--text-color, #334155);
     }
 
+    /* Tarjetas de clase y disponibilidad */
     .class-card, .card-disponible {
         border-radius: 6px;
         padding: 6px 8px;
@@ -126,7 +133,7 @@ st.markdown(
         display: flex;
         flex-direction: column;
         justify-content: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
         box-sizing: border-box;
         cursor: pointer;
         position: relative;
@@ -135,16 +142,24 @@ st.markdown(
     }
 
     .class-card-evento {
-        background: linear-gradient(135deg, #451a03 0%, #1c0901 100%) !important;
+        background: linear-gradient(135deg, #78350f 0%, #451a03 100%) !important;
         border-left: 4px solid #f59e0b !important;
+        color: #fef3c7 !important;
     }
 
+    /* Tarjeta DISPONIBLE adaptada con alto contraste */
     .card-disponible {
-        background: rgba(16, 185, 129, 0.10);
-        border: 1px dashed #10b981;
-        border-left: 4px solid #10b981;
-        color: #a7f3d0;
+        background: rgba(16, 185, 129, 0.15) !important;
+        border: 1px dashed #059669 !important;
+        border-left: 4px solid #059669 !important;
+        color: #047857 !important;
         text-align: center;
+    }
+
+    .card-disponible .class-time, 
+    .card-disponible div {
+        color: #047857 !important;
+        font-weight: 700 !important;
     }
 
     .class-title {
@@ -158,7 +173,7 @@ st.markdown(
 
     .class-doc {
         font-size: 0.70rem;
-        opacity: 0.85;
+        opacity: 0.9;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -168,26 +183,28 @@ st.markdown(
         font-size: 0.68rem;
         font-weight: 600;
         margin-bottom: 3px;
-        opacity: 0.9;
+        opacity: 0.95;
     }
 
     .event-agenda-card {
-        background: linear-gradient(135deg, #2e1005 0%, #170701 100%);
+        background: linear-gradient(135deg, #451a03 0%, #1c0901 100%);
         border: 1px solid #78350f;
         border-left: 5px solid #f59e0b;
         border-radius: 8px;
         padding: 14px;
         margin-bottom: 14px;
         box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        color: #fef3c7;
     }
 
     .excel-template-box {
-        background-color: rgba(255, 255, 255, 0.04);
+        background-color: rgba(139, 92, 246, 0.08);
         border: 2px dashed #8b5cf6;
         border-radius: 8px;
         padding: 16px;
         margin-top: 10px;
         font-family: monospace;
+        color: var(--text-color, #1e293b);
     }
     </style>
 """,
@@ -404,7 +421,6 @@ def renderizar_matriz_semanal_aula(
     es_dia_hoy = fecha_dia_actual == fecha_hoy
 
     with cols_dias[idx_col]:
-      # Solo dibujar la tarjeta del día si NO se especificó lo contrario
       if mostrar_encabezado_dia:
         header_class = (
             "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
@@ -415,7 +431,7 @@ def renderizar_matriz_semanal_aula(
             if es_dia_hoy
             else ""
         )
-        color_title = "#6ee7b7" if es_dia_hoy else "#f8fafc"
+        color_title = "#6ee7b7" if es_dia_hoy else "var(--text-color, #0f172a)"
         fecha_fmt = fecha_dia_actual.strftime("%d/%m")
 
         header_html = (
@@ -677,7 +693,7 @@ with tab_horarios:
         key="input_horas",
     )
 
-    # Declaración del estado del filtro de hora
+    # Definición de la variable de estado del filtro
     filtro_hora_activo = rango_horas != (7, 19)
 
     fecha_hoy = datetime.date.today()
@@ -783,15 +799,13 @@ with tab_horarios:
 
       for idx_s, salon in enumerate(salones_unicos):
         with cols_salones[idx_s]:
-          # CAJA DE CABECERA CON ALTURA FIJA PARA ALINEAR PERFECTAMENTE TODAS LAS COLUMNAS
+          # Cabecera con altura estandarizada y color adaptativo
           st.markdown(
               f"<div class='day-header-box' style='height: 75px; display:"
               " flex; align-items: center; justify-content: center;"
-              " padding: 6px; margin-bottom: 12px; background: rgba(255, 255,"
-              " 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15);"
-              " border-radius: 8px;'><div class='day-title' style='color:"
-              " #6ee7b7; text-align: center; font-size: 0.75rem; font-weight:"
-              f" 800;' title='{salon}'>🏛️ {salon}</div></div>",
+              " padding: 6px; margin-bottom: 12px; border-radius: 8px;'><div"
+              " class='day-title' style='text-align: center; font-size:"
+              f" 0.80rem; font-weight: 800;' title='{salon}'>🏛️ {salon}</div></div>",
               unsafe_allow_html=True,
           )
 
@@ -800,7 +814,7 @@ with tab_horarios:
               == normalizar_texto(salon)
           ]
 
-          # Renderizar solo el día actual y OMITIR el encabezado duplicado
+          # Renderizar solo el día actual omitiendo la fecha duplicada
           renderizar_matriz_semanal_aula(
               df_aula,
               [dia_nombre_hoy],
