@@ -3,7 +3,7 @@ import sqlite3
 import pandas as pd
 import streamlit as st
 
-# Importación de controladores de seguridad y negocio
+# Importar controlador de autenticación y validación
 from controllers.auth_controller import (
     renderizar_login_admin,
     validar_archivo_excel,
@@ -23,19 +23,27 @@ DB_PATH = "horarios.db"
 
 
 # -----------------------------------------------------------------------------
-# 2. FUNCIONES DE BASE DE DATOS (CON CONSULTAS PARAMETRIZADAS SEGURAS)
+# 2. BASE DE DATOS Y BINDINGS SEGUROS (?)
 # -----------------------------------------------------------------------------
 def obtener_conexion():
-  """Crea y retorna la conexión a la base de datos SQLite local."""
   conn = sqlite3.connect(DB_PATH)
   conn.row_factory = sqlite3.Row
   return conn
 
 
 def inicializar_bd():
-  """Crea las tablas principales si no existen."""
   conn = obtener_conexion()
   cursor = conn.cursor()
+
+  # Tabla de configuración (Semestre activo)
+  cursor.execute("""
+        CREATE TABLE IF NOT EXISTS configuracion (
+            clave TEXT PRIMARY KEY,
+            valor TEXT NOT NULL
+        )
+    """)
+
+  # Tabla de horarios
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS horarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +55,8 @@ def inicializar_bd():
             grupo TEXT
         )
     """)
+
+  # Tabla de eventos
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS eventos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,8 +72,34 @@ def inicializar_bd():
   conn.close()
 
 
+def obtener_semestre_activo():
+  if not os.path.exists(DB_PATH):
+    return "No configurado"
+  conn = obtener_conexion()
+  cursor = conn.cursor()
+  cursor.execute(
+      "SELECT valor FROM configuracion WHERE clave = 'semestre_activo'"
+  )
+  fila = cursor.fetchone()
+  conn.close()
+  return fila["valor"] if fila else "Sin Semestre Cargar"
+
+
+def guardar_semestre_activo(nuevo_semestre):
+  conn = obtener_conexion()
+  cursor = conn.cursor()
+  cursor.execute(
+      """
+        INSERT INTO configuracion (clave, valor) VALUES ('semestre_activo', ?)
+        ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor
+    """,
+      (nuevo_semestre,),
+  )
+  conn.commit()
+  conn.close()
+
+
 def obtener_aulas_disponibles():
-  """Obtiene la lista de aulas registradas ordenadas alfabéticamente."""
   if not os.path.exists(DB_PATH):
     return []
   conn = obtener_conexion()
@@ -75,9 +111,7 @@ def obtener_aulas_disponibles():
 
 
 def consultar_horario_aula(aula_seleccionada):
-  """Obtiene la matriz de horario semanal para un aula usando consultas seguras."""
   conn = obtener_conexion()
-  # Consulta parametrizada con '?' para evitar inyección SQL
   query = """
         SELECT dia, bloque_horario, asignatura, docente, grupo 
         FROM horarios 
@@ -90,7 +124,6 @@ def consultar_horario_aula(aula_seleccionada):
 
 
 def consultar_eventos_aula(aula_seleccionada):
-  """Obtiene los eventos especiales programados para un aula."""
   conn = obtener_conexion()
   query = """
         SELECT fecha, hora_inicio, hora_fin, nombre_evento, descripcion 
@@ -103,74 +136,68 @@ def consultar_eventos_aula(aula_seleccionada):
   return df
 
 
-# Inicializar la base de datos al cargar la app
+# Inicializar la base de datos
 inicializar_bd()
 
 # -----------------------------------------------------------------------------
-# 3. BARRA LATERAL (SIDEBAR) & AUTENTICACIÓN
+# 3. BARRA LATERAL (SIDEBAR) Y LOGIN ADMIN
 # -----------------------------------------------------------------------------
 st.sidebar.title("🏫 Sistema DTE")
-st.sidebar.markdown(
-    "Módulo de Consulta de Espacios y Aulas del Departamento de Tecnología"
-    " Educativa."
-)
+st.sidebar.markdown("Portal Institucional de Gestión de Aulas y Horarios.")
 st.sidebar.divider()
 
-# Módulo de Login Administrativo
 renderizar_login_admin()
 
 st.sidebar.divider()
-st.sidebar.caption("© 2026 Universidad - Sistema de Horarios DTE")
+st.sidebar.caption("© 2026 Universidad - Sistema DTE")
 
 # -----------------------------------------------------------------------------
-# 4. ENCABEZADO PRINCIPAL
+# 4. ENCABEZADO
 # -----------------------------------------------------------------------------
-st.title("📚 Consulta de Aulas y Horarios DTE")
-st.markdown(
-    "Bienvenido al portal de consulta de espacios académicos. Utilice los"
-    " filtros a continuación para verificar la disponibilidad y programación"
-    " de las aulas."
-)
+st.title("🏫 Consulta de Aulas y Horarios DTE")
+semestre_actual = obtener_semestre_activo()
+
+if semestre_actual == "Sin Semestre Cargar" or semestre_actual == "No configurado":
+  st.warning(
+      "⚠️ **Estado:** No hay un semestre activo cargado en el sistema."
+  )
+else:
+  st.info(f"📌 **Semestre Activo:** {semestre_actual}")
 
 # -----------------------------------------------------------------------------
-# 5. VISTA PÚBLICA: CONSULTA DE HORARIOS Y EVENTOS
+# 5. VISTA PÚBLICA (CONSULTA PARA ESTUDIANTES / DOCENTES)
 # -----------------------------------------------------------------------------
 aulas = obtener_aulas_disponibles()
 
 if not aulas:
   st.info(
-      "ℹ️ **Estado:** La base de datos no contiene horarios registrados"
-      " actualmente. Si es administrador, inicie sesión en la barra lateral"
-      " para cargar la matriz en Excel."
+      "ℹ️ La base de datos no contiene horarios registrados. Un administrador"
+      " debe realizar el cargue del semestre."
   )
 else:
   col_filtro, col_espacio = st.columns([1, 3])
 
   with col_filtro:
-    st.subheader("🔍 Selección de Aula")
-    aula_seleccionada = st.selectbox("Seleccione el aula o espacio:", aulas)
-
+    st.subheader("🔍 Filtros de Búsqueda")
+    aula_seleccionada = st.selectbox("Seleccione el Aula:", aulas)
     dia_filtro = st.selectbox(
-        "Filtrar por día (Opcional):",
+        "Filtrar por Día:",
         ["Todos", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"],
     )
 
   with col_espacio:
-    st.header(f"📍 Espacio: {aula_seleccionada}")
-
+    st.header(f"📍 Aula: {aula_seleccionada}")
     tab_horario, tab_eventos = st.tabs(
-        ["🗓️ Horario Semanal", "📢 Próximos Eventos"]
+        ["📅 Horario Semanal", "📢 Próximos Eventos"]
     )
 
     with tab_horario:
       df_horario = consultar_horario_aula(aula_seleccionada)
-
       if df_horario.empty:
-        st.warning("No hay clases registradas para este espacio.")
+        st.warning("No hay programación registrada para esta aula.")
       else:
         if dia_filtro != "Todos":
           df_horario = df_horario[df_horario["dia"] == dia_filtro]
-
         st.dataframe(
             df_horario,
             use_container_width=True,
@@ -178,7 +205,7 @@ else:
             column_config={
                 "dia": "Día",
                 "bloque_horario": "Bloque Horario",
-                "asignatura": "Asignatura / Asignación",
+                "asignatura": "Asignatura",
                 "docente": "Docente",
                 "grupo": "Grupo",
             },
@@ -186,102 +213,148 @@ else:
 
     with tab_eventos:
       df_eventos = consultar_eventos_aula(aula_seleccionada)
-
       if df_eventos.empty:
-        st.info("No hay eventos especiales ni reservas en este espacio.")
+        st.info("No hay eventos ni reservas especiales para esta aula.")
       else:
-        st.dataframe(
-            df_eventos,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "fecha": "Fecha",
-                "hora_inicio": "Inicio",
-                "hora_fin": "Fin",
-                "nombre_evento": "Evento",
-                "descripcion": "Descripción",
-            },
-        )
+        st.dataframe(df_eventos, use_container_width=True, hide_index=True)
 
 # -----------------------------------------------------------------------------
-# 6. VISTA ADMINISTRATIVA PROTEGIDA
+# 6. PANEL ADMINISTRATIVO INTUITIVO Y ESTRUCTURADO (SOLO ADMINS)
 # -----------------------------------------------------------------------------
 if st.session_state.get("admin_autenticado", False):
   st.divider()
   st.header("⚙️ Panel de Gestión Administrativa")
-  st.success("Acceso concedido. Puede realizar la actualización de datos.")
 
-  col_carga, col_eventos_admin = st.columns(2)
+  # Pestañas claras para separar las acciones
+  tab_admin_semestre, tab_admin_cargue, tab_admin_eventos = st.tabs([
+      "📌 Semestre Activo",
+      "📤 Cargue de Horarios (Excel)",
+      "➕ Eventos y Reservas",
+  ])
 
-  with col_carga:
-    st.subheader("📤 Cargar Matriz de Horarios (Excel)")
+  # --- PESTAÑA 1: GESTIÓN DEL SEMESTRE ACTIVO ---
+  with tab_admin_semestre:
+    st.subheader("Configuración del Período Académico")
+    col_sem1, col_sem2 = st.columns([2, 1])
+
+    with col_sem1:
+      nuevo_semestre_input = st.text_input(
+          "Definir nombre o código del semestre:",
+          value=semestre_actual
+          if semestre_actual != "Sin Semestre Cargar"
+          else "2026-2",
+          help="Ejemplo: 2026-1, 2026-2, Intersemestral 2026",
+      )
+
+    with col_sem2:
+      st.write("")  # Espaciado vertical
+      st.write("")
+      if st.button("💾 Guardar Semestre", type="primary"):
+        guardar_semestre_activo(nuevo_semestre_input)
+        st.success(f"Semestre actualizado a: {nuevo_semestre_input}")
+        st.rerun()
+
+  # --- PESTAÑA 2: CARGUE Y EDICIÓN INTERACTIVA DE EXCEL ---
+  with tab_admin_cargue:
+    st.subheader("Cargar y Previsualizar Matriz de Horarios")
     archivo_excel = st.file_uploader(
-        "Seleccione el archivo .xlsx generado por la coordinación:",
+        "Seleccione el archivo Excel (.xlsx) con los horarios:",
         type=["xlsx", "xls"],
-        help="El archivo debe contener las columnas oficiales de aulas y bloques horarios.",
+        key="uploader_excel",
     )
 
     if archivo_excel and validar_archivo_excel(archivo_excel):
-      if st.button("🚀 Procesar y Actualizar Semestre", type="primary"):
-        try:
-          # Lectura y procesamiento del archivo con pandas
-          df_cargado = pd.read_excel(archivo_excel)
+      try:
+        # Cargar dataframe inicial
+        df_preview = pd.read_excel(archivo_excel)
 
-          # Ejemplo de integración a SQLite
-          # (Asegúrate de ajustar los nombres de columnas según tu Excel)
+        st.warning(
+            "📝 **Previsualización interactiva:** Puede modificar cualquier"
+            " celda en la tabla antes de guardar los datos en el sistema."
+        )
+
+        # Editor de datos interactivo
+        df_editado = st.data_editor(
+            df_preview,
+            num_rows="dynamic",
+            use_container_width=True,
+            key="editor_matriz",
+        )
+
+        st.divider()
+        if st.button(
+            "🚀 Confirmar y Reemplazar Horarios en la BD", type="primary"
+        ):
           conn = obtener_conexion()
           cursor = conn.cursor()
-          cursor.execute("DELETE FROM horarios")  # Reemplazo de datos antiguos
 
-          for _, row in df_cargado.iterrows():
+          # Limpiar tabla previa de horarios
+          cursor.execute("DELETE FROM horarios")
+
+          # Insertar registros editados con parámetros seguros (?)
+          for _, fila in df_editado.iterrows():
             cursor.execute(
                 """
                             INSERT INTO horarios (aula, dia, bloque_horario, asignatura, docente, grupo)
                             VALUES (?, ?, ?, ?, ?, ?)
                         """,
                 (
-                    str(row.get("AULA", "")),
-                    str(row.get("DIA", "")),
-                    str(row.get("HORA", "")),
-                    str(row.get("ASIGNATURA", "")),
-                    str(row.get("DOCENTE", "")),
-                    str(row.get("GRUPO", "")),
+                    str(fila.get("AULA", fila.get("aula", ""))),
+                    str(fila.get("DIA", fila.get("dia", ""))),
+                    str(
+                        fila.get(
+                            "HORA",
+                            fila.get("bloque_horario", fila.get("hora", "")),
+                        )
+                    ),
+                    str(fila.get("ASIGNATURA", fila.get("asignatura", ""))),
+                    str(fila.get("DOCENTE", fila.get("docente", ""))),
+                    str(fila.get("GRUPO", fila.get("grupo", ""))),
                 ),
             )
 
           conn.commit()
           conn.close()
+
           st.success(
-              "✅ ¡Matriz de horarios procesada y cargada con éxito en la base de"
-              " datos!"
+              "✅ ¡Matriz cargada y guardada exitosamente en la base de datos!"
           )
           st.rerun()
-        except Exception as e:
-          st.error(
-              f"⚠️ Error al procesar la estructura del archivo Excel: {str(e)}"
-          )
 
-  with col_eventos_admin:
-    st.subheader("➕ Registrar Evento Especial / Reserva")
-    with st.form("form_nuevo_evento"):
-      aula_evento = st.selectbox(
-          "Aula para el evento:",
-          aulas if aulas else ["Aula 101", "Aula 102", "Auditorio"],
+      except Exception as e:
+        st.error(f"Error al leer la estructura del archivo Excel: {str(e)}")
+
+  # --- PESTAÑA 3: GESTIÓN DE EVENTOS ESPECIALES ---
+  with tab_admin_eventos:
+    st.subheader("Registrar Evento Especial / Reserva de Aula")
+
+    listado_aulas_eventos = (
+        aulas if aulas else ["Aula 101", "Aula 102", "Auditorio DTE"]
+    )
+
+    with st.form("form_nuevo_evento_admin"):
+      col_e1, col_e2 = st.columns(2)
+
+      with col_e1:
+        aula_ev = st.selectbox("Aula:", listado_aulas_eventos)
+        fecha_ev = st.date_input("Fecha del Evento:")
+        nom_ev = st.text_input("Nombre del Evento / Conferencia / Reserva:")
+
+      with col_e2:
+        col_h1, col_h2 = st.columns(2)
+        with col_h1:
+          hora_ini_ev = st.time_input("Hora Inicio:")
+        with col_h2:
+          hora_fin_ev = st.time_input("Hora Fin:")
+
+        desc_ev = st.text_area("Descripción u observaciones:")
+
+      btn_guardar_ev = st.form_submit_button(
+          "📌 Guardar Reserva", type="primary"
       )
-      fecha_evento = st.date_input("Fecha del evento:")
-      col_h1, col_h2 = st.columns(2)
-      with col_h1:
-        hora_ini = st.time_input("Hora Inicio:")
-      with col_h2:
-        hora_fin = st.time_input("Hora Fin:")
 
-      nom_evento = st.text_input("Nombre del evento / Reserva:")
-      desc_evento = st.text_area("Descripción u observaciones:")
-
-      btn_guardar_evento = st.form_submit_button("Guardar Reserva")
-
-      if btn_guardar_evento:
-        if nom_evento:
+      if btn_guardar_ev:
+        if nom_ev.strip():
           conn = obtener_conexion()
           cursor = conn.cursor()
           cursor.execute(
@@ -290,17 +363,17 @@ if st.session_state.get("admin_autenticado", False):
                         VALUES (?, ?, ?, ?, ?, ?)
                     """,
               (
-                  aula_evento,
-                  str(fecha_evento),
-                  str(hora_ini),
-                  str(hora_fin),
-                  nom_evento,
-                  desc_evento,
+                  aula_ev,
+                  str(fecha_ev),
+                  str(hora_ini_ev),
+                  str(hora_fin_ev),
+                  nom_ev,
+                  desc_ev,
               ),
           )
           conn.commit()
           conn.close()
-          st.success("✅ Evento o reserva registrado correctamente.")
+          st.success("✅ Evento guardado con éxito.")
           st.rerun()
         else:
-          st.error("⚠️ El nombre del evento es obligatorio.")
+          st.error("⚠️ Ingrese un nombre válido para el evento.")
