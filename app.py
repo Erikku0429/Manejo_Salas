@@ -78,7 +78,7 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
 
 
 # -----------------------------------------------------------------------------
-# 3. ESTILOS CSS ADAPTATIVOS (MODO CLARO Y MODO OSCURO)
+# 3. ESTILOS CSS MULTI-TEMA (MODO CLARO Y MODO OSCURO AUTOMÁTICOS)
 # -----------------------------------------------------------------------------
 st.markdown(
     """
@@ -89,14 +89,14 @@ st.markdown(
         font-weight: 800;
         margin-top: 0px;
         margin-bottom: 4px;
-        color: var(--text-color, #1e293b);
+        color: var(--text-color);
         text-align: center;
     }
 
     /* Cajas de cabecera de salones y días */
     .day-header-box {
         border-radius: 8px;
-        background: rgba(150, 150, 150, 0.08);
+        background: rgba(150, 150, 150, 0.12);
         border: 1px solid rgba(150, 150, 150, 0.25);
         margin-bottom: 12px;
         box-sizing: border-box;
@@ -108,20 +108,24 @@ st.markdown(
         box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
     }
 
-    /* Títulos de salón y días en alto contraste */
+    /* Títulos de salón y días en alto contraste universal */
     .day-title {
         font-weight: 800;
-        font-size: 0.85rem;
+        font-size: 0.82rem;
         margin: 0;
         line-height: 1.2;
-        color: var(--text-color, #0f172a) !important;
+        color: var(--text-color) !important;
+    }
+
+    .day-header-box .day-title {
+        color: #10b981 !important; /* Verde menta brillante visible en claro y oscuro */
     }
 
     .day-date {
         font-size: 0.82rem;
         opacity: 0.85;
         margin-top: 2px;
-        color: var(--text-color, #334155);
+        color: var(--text-color);
     }
 
     /* Tarjetas de clase y disponibilidad */
@@ -133,7 +137,7 @@ st.markdown(
         display: flex;
         flex-direction: column;
         justify-content: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
         box-sizing: border-box;
         cursor: pointer;
         position: relative;
@@ -147,18 +151,18 @@ st.markdown(
         color: #fef3c7 !important;
     }
 
-    /* Tarjeta DISPONIBLE adaptada con alto contraste */
+    /* Tarjeta DISPONIBLE adaptada con alto contraste para ambos modos */
     .card-disponible {
-        background: rgba(16, 185, 129, 0.15) !important;
-        border: 1px dashed #059669 !important;
-        border-left: 4px solid #059669 !important;
-        color: #047857 !important;
+        background: rgba(16, 185, 129, 0.18) !important;
+        border: 1px dashed #10b981 !important;
+        border-left: 4px solid #10b981 !important;
+        color: #34d399 !important;
         text-align: center;
     }
 
     .card-disponible .class-time, 
     .card-disponible div {
-        color: #047857 !important;
+        color: #34d399 !important;
         font-weight: 700 !important;
     }
 
@@ -169,6 +173,7 @@ st.markdown(
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        color: #ffffff !important;
     }
 
     .class-doc {
@@ -177,6 +182,7 @@ st.markdown(
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+        color: #e2e8f0 !important;
     }
 
     .class-time {
@@ -184,6 +190,7 @@ st.markdown(
         font-weight: 600;
         margin-bottom: 3px;
         opacity: 0.95;
+        color: #f1f5f9 !important;
     }
 
     .event-agenda-card {
@@ -204,7 +211,7 @@ st.markdown(
         padding: 16px;
         margin-top: 10px;
         font-family: monospace;
-        color: var(--text-color, #1e293b);
+        color: var(--text-color);
     }
     </style>
 """,
@@ -426,19 +433,17 @@ def renderizar_matriz_semanal_aula(
             "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
         )
         hoy_badge = (
-            "<div style='font-size:0.65rem; font-weight:800; color:#6ee7b7;"
+            "<div style='font-size:0.65rem; font-weight:800; color:#10b981;"
             " margin-bottom:1px;'>📍 HOY</div>"
             if es_dia_hoy
             else ""
         )
-        color_title = "#6ee7b7" if es_dia_hoy else "var(--text-color, #0f172a)"
         fecha_fmt = fecha_dia_actual.strftime("%d/%m")
 
         header_html = (
             f"<div class='{header_class}'>"
             f"{hoy_badge}"
-            f"<div class='day-title'"
-            f" style='color:{color_title};'>{dia_nom}</div>"
+            f"<div class='day-title'>{dia_nom}</div>"
             f"<div class='day-date'>{fecha_fmt}</div>"
             "</div>"
         )
@@ -693,7 +698,7 @@ with tab_horarios:
         key="input_horas",
     )
 
-    # Definición de la variable de estado del filtro
+    # Declaración del estado del filtro de hora
     filtro_hora_activo = rango_horas != (7, 19)
 
     fecha_hoy = datetime.date.today()
@@ -799,7 +804,7 @@ with tab_horarios:
 
       for idx_s, salon in enumerate(salones_unicos):
         with cols_salones[idx_s]:
-          # Cabecera con altura estandarizada y color adaptativo
+          # Cabecera con texto verde menta de alta visibilidad constante
           st.markdown(
               f"<div class='day-header-box' style='height: 75px; display:"
               " flex; align-items: center; justify-content: center;"
