@@ -2,3 +2,6 @@ streamlit>=1.28.0
 pandas>=2.0.0
 openpyxl>=3.1.0
 
+eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3OTAwMjY3NTUsImlkIjoiMDFhMGM1ZTgtMTIwMS03YzAwLWFiN2ItYTU2ZjA0NWIxYTU1Iiwia2lkIjoieHozNTBJWHMzeXFPT2xha3pTbEo1bE5RVXppa05tUlltUVREbko1ZWo2VSIsInJpZCI6IjFiYjJlYTgxLTA0NTItNGY3ZS05OTFlLTg5YWM1ODhhOTFmNiJ9.JVXuj8WYR06FydcKASDPF4y2Ay1uKuxRGeW8ZKmKRvoGdCJd5pb9xJ1Vnsf_pfioyKedqcaNm2uuGccjmpwRBg
+
+libsql://horarios-dte-erikku0429.aws-ap-northeast-1.turso.io
