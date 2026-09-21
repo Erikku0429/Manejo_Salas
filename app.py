@@ -14,7 +14,7 @@ st.set_page_config(
     page_title="Consulta Aulas DTE",
     page_icon="sources/lg_upn.png" if os.path.exists("sources/lg_upn.png") else "🏫",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",  # <-- MANTIENE EL MENÚ CERRADO
 )
 
 db = DatabaseModel()
