@@ -4,3 +4,8 @@ toolbarMode = "minimal"
 
 [browser]
 gatherUsageStats = false
+
+[admin_credentials]
+username = "admin_dte"
+
+password_hash = "c4580dccf6254bd0fe81f4c2fbba32ae62f10b6b7328c2406bd1985a0af62665"
