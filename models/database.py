@@ -200,3 +200,72 @@ class DatabaseModel:
 
     conn.commit()
     conn.close()
+    def eliminar_horario_por_id(self, record_id):
+      """Elimina un bloque de clase o evento por su ID unico."""
+      conn = sqlite3.connect(self.db_name)
+      cursor = conn.cursor()
+      cursor.execute('DELETE FROM horarios WHERE id = ?', (record_id,))
+      conn.commit()
+      conn.close()
+
+    def actualizar_horario_por_id(
+        self, record_id, asignatura, docente, observacion=''
+    ):
+      """Actualiza los datos de una clase o evento existente."""
+      conn = sqlite3.connect(self.db_name)
+      cursor = conn.cursor()
+      cursor.execute(
+          """
+            UPDATE horarios 
+            SET asignatura = ?, docente = ?, observacion = ?
+            WHERE id = ?
+        """,
+          (asignatura, docente, observacion, record_id),
+      )
+      conn.commit()
+      conn.close()
+
+    def actualizar_o_insertar_semestre(self, df_final, f_inicio, f_fin):
+      """Inserta o actualiza clases sin vaciar la base de datos por completo."""
+      conn = sqlite3.connect(self.db_name)
+      cursor = conn.cursor()
+
+      # Actualiza el rango del semestre sin borrar los eventos creados
+      cursor.execute('DELETE FROM vigencia_semestre')
+      cursor.execute(
+          'INSERT INTO vigencia_semestre (fecha_inicio, fecha_fin) VALUES (?, ?)',
+          (f_inicio.strftime('%Y-%m-%d'), f_fin.strftime('%Y-%m-%d')),
+      )
+
+      for _, row in df_final.iterrows():
+        # Reemplazar solo si hay un traslape exacto en espacio, fecha y hora inicio
+        cursor.execute(
+            """
+                DELETE FROM horarios 
+                WHERE espacio = ? AND fecha = ? AND hora_inicio = ?
+            """,
+            (row['espacio'], row['fecha'], row['hora_inicio']),
+        )
+
+        cursor.execute(
+            """
+                INSERT INTO horarios (espacio, fecha, mes, dia_num, dia, hora_inicio, hora_fin, asignatura, docente, tipo_evento, observacion)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                row['espacio'],
+                row['fecha'],
+                row['mes'],
+                row['dia_num'],
+                row['dia'],
+                row['hora_inicio'],
+                row['hora_fin'],
+                row['asignatura'],
+                row['docente'],
+                row.get('tipo_evento', 'clase'),
+                row.get('observacion', ''),
+            ),
+        )
+
+      conn.commit()
+      conn.close()
