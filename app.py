@@ -663,13 +663,46 @@ with tab_horarios:
         if hay_busqueda_activa and df_filtered.empty:
             st.warning("⚠️ **No se encontraron resultados.** Por favor verifica lo que escribiste o limpia los filtros.")
         else:
-            if salon_sel == "TODOS" and not hay_busqueda_activa and not solo_disponibles and not filtro_hora_activo:
-                for salon in salones_unicos:
-                    df_aula = df_filtered[df_filtered["espacio"].apply(normalizar_texto) == normalizar_texto(salon)]
-                    with st.expander(f"🏛️ **{salon}**", expanded=True):
+            if (
+                salon_sel == "TODOS"
+                and not hay_busqueda_activa
+                and not solo_disponibles
+                and not filtro_hora_activo
+            ):
+                # Obtener el nombre del día de hoy en español
+                MAPA_DIAS_ESP = {
+                    0: "LUNES",
+                    1: "MARTES",
+                    2: "MIÉRCOLES",
+                    3: "JUEVES",
+                    4: "VIERNES",
+                    5: "SÁBADO",
+                    6: "DOMINGO",
+                }
+                dia_nombre_hoy = MAPA_DIAS_ESP.get(fecha_hoy.weekday(), "LUNES")
+
+                st.markdown(
+                    f"##### 📍 **Vista General del Día:** {dia_nombre_hoy} ({fecha_hoy.strftime('%d/%m/%Y')})"
+                )
+
+                # Columnas verticales por salón para el día de hoy
+                cols_salones = st.columns(len(salones_unicos))
+
+                for idx_s, salon in enumerate(salones_unicos):
+                    with cols_salones[idx_s]:
+                        st.markdown(
+                            f"<div class='day-header-box' style='height: auto; padding: 8px; margin-bottom: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15);'><div class='day-title' style='color: #6ee7b7; text-align: center;'>🏛️ {salon}</div></div>",
+                            unsafe_allow_html=True,
+                        )
+
+                        df_aula = df_filtered[
+                            df_filtered["espacio"].apply(normalizar_texto)
+                            == normalizar_texto(salon)
+                        ]
+
                         renderizar_matriz_semanal_aula(
                             df_aula,
-                            dias_semana_nombres,
+                            [dia_nombre_hoy],
                             lunes_semana,
                             fecha_hoy,
                             nombre_aula=salon,
@@ -679,7 +712,10 @@ with tab_horarios:
                         )
             else:
                 if salon_sel != "TODOS":
-                    df_filtered = df_filtered[df_filtered["espacio"].apply(normalizar_texto) == normalizar_texto(salon_sel)]
+                    df_filtered = df_filtered[
+                        df_filtered["espacio"].apply(normalizar_texto)
+                        == normalizar_texto(salon_sel)
+                    ]
 
                 renderizar_matriz_semanal_aula(
                     df_filtered,
@@ -691,6 +727,7 @@ with tab_horarios:
                     solo_disponibles=solo_disponibles,
                     rango_horas=rango_horas,
                 )
+
 
 # -----------------------------------------------------------------------------
 # TAB 2: PRÓXIMOS EVENTOS (PÚBLICO)
