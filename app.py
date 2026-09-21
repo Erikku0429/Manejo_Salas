@@ -334,6 +334,7 @@ def renderizar_matriz_semanal_aula(
     ocultar_disponibles=False,
     solo_disponibles=False,
     rango_horas=(7, 19),
+    mostrar_encabezado_dia=True,  # <-- NUEVO PARÁMETRO
 ):
   MAPA_DIAS_INDEX = {
       "LUNES": 0,
@@ -350,7 +351,6 @@ def renderizar_matriz_semanal_aula(
   hora_min_filtro, hora_max_filtro = rango_horas
   es_admin = st.session_state.authenticated
 
-  # Obtener el listado total de aulas registradas en el DataFrame general
   aulas_totales = (
       sorted(
           [
@@ -370,26 +370,29 @@ def renderizar_matriz_semanal_aula(
     es_dia_hoy = fecha_dia_actual == fecha_hoy
 
     with cols_dias[idx_col]:
-      header_class = (
-          "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
-      )
-      hoy_badge = (
-          "<div style='font-size:0.65rem; font-weight:800; color:#6ee7b7;"
-          " margin-bottom:1px;'>📍 HOY</div>"
-          if es_dia_hoy
-          else ""
-      )
-      color_title = "#6ee7b7" if es_dia_hoy else "#f8fafc"
-      fecha_fmt = fecha_dia_actual.strftime("%d/%m")
+      # Solo renderizar la caja "📍 HOY / LUNES" si no está desactivada
+      if mostrar_encabezado_dia:
+        header_class = (
+            "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
+        )
+        hoy_badge = (
+            "<div style='font-size:0.65rem; font-weight:800; color:#6ee7b7;"
+            " margin-bottom:1px;'>📍 HOY</div>"
+            if es_dia_hoy
+            else ""
+        )
+        color_title = "#6ee7b7" if es_dia_hoy else "#f8fafc"
+        fecha_fmt = fecha_dia_actual.strftime("%d/%m")
 
-      header_html = (
-          f"<div class='{header_class}'>"
-          f"{hoy_badge}"
-          f"<div class='day-title' style='color:{color_title};'>{dia_nom}</div>"
-          f"<div class='day-date'>{fecha_fmt}</div>"
-          "</div>"
-      )
-      st.markdown(header_html, unsafe_allow_html=True)
+        header_html = (
+            f"<div class='{header_class}'>"
+            f"{hoy_badge}"
+            f"<div class='day-title'"
+            f" style='color:{color_title};'>{dia_nom}</div>"
+            f"<div class='day-date'>{fecha_fmt}</div>"
+            "</div>"
+        )
+        st.markdown(header_html, unsafe_allow_html=True)
 
       clases_dia = df_aula[
           df_aula["dia"].apply(normalizar_texto) == dia_norm
@@ -398,7 +401,6 @@ def renderizar_matriz_semanal_aula(
       hora_cursor = hora_min_filtro
       hora_limite = hora_max_filtro
 
-      # Función auxiliar interna para renderizar bloques de "VARIAS AULAS"
       def renderizar_bloque_disponible(h_inicio_bloque, h_fin_bloque):
         if salon_upper:
           label_btn = (
@@ -472,7 +474,6 @@ def renderizar_matriz_semanal_aula(
             )
             st.markdown(card_free, unsafe_allow_html=True)
         else:
-          # VISTA DE VARIAS AULAS: Calcular qué salas específicas no tienen clase en este hueco
           aulas_ocupadas_franja = set(
               clases_dia[
                   (clases_dia["hora_inicio"] < h_fin_bloque)
@@ -484,7 +485,6 @@ def renderizar_matriz_semanal_aula(
           aulas_libres_franja = [
               a for a in aulas_totales if a not in aulas_ocupadas_franja
           ]
-
           label_btn = (
               f"🟢 DISPONIBLE\n⏰ {h_inicio_bloque:02d}:00 -"
               f" {h_fin_bloque:02d}:00 | VARIAS AULAS"
@@ -496,25 +496,15 @@ def renderizar_matriz_semanal_aula(
                 f" {h_fin_bloque:02d}:00)**"
             )
             if aulas_libres_franja:
-              st.caption(
-                  "Las siguientes salas no tienen clases programadas en esta"
-                  " franja:"
-              )
               for a_libre in aulas_libres_franja:
                 st.markdown(f"• 🟢 **{a_libre}**")
-            else:
-              st.info(
-                  "No hay salas completamente libres en esta franja horaria."
-              )
 
-      # Caso 1: No hay clases en todo el día
       if clases_dia.empty:
         if (
             not ocultar_disponibles or solo_disponibles
         ) and hora_limite > hora_cursor:
           renderizar_bloque_disponible(hora_cursor, hora_limite)
       else:
-        # Caso 2: Recorrer clases del día
         for _, c in clases_dia.iterrows():
           h_ini = int(c["hora_inicio"])
           h_fin = int(c["hora_fin"])
@@ -523,12 +513,10 @@ def renderizar_matriz_semanal_aula(
           h_fin_vis = min(h_fin, hora_max_filtro)
           salon_row = str(c["espacio"]).upper()
 
-          # Renderizar espacio libre previo
           if h_ini_vis > hora_cursor:
             if not ocultar_disponibles or solo_disponibles:
               renderizar_bloque_disponible(hora_cursor, h_ini_vis)
 
-          # Renderizar clase ocupada
           if not solo_disponibles and h_fin_vis > h_ini_vis:
             tipo_ev = str(c.get("tipo_evento", "")).lower()
             es_evento = tipo_ev == "evento"
@@ -542,12 +530,12 @@ def renderizar_matriz_semanal_aula(
                 else ""
             )
 
-            if es_evento:
-              style_card = ""
-              class_attr = "class-card class-card-evento"
-            else:
-              style_card = generar_estilo_color_materia(asig_upper)
-              class_attr = "class-card"
+            style_card = (
+                "" if es_evento else generar_estilo_color_materia(asig_upper)
+            )
+            class_attr = (
+                "class-card class-card-evento" if es_evento else "class-card"
+            )
 
             card_class_html = (
                 f"<div class='{class_attr}' style='{style_card}'"
@@ -561,7 +549,6 @@ def renderizar_matriz_semanal_aula(
 
           hora_cursor = max(hora_cursor, h_fin_vis)
 
-        # Renderizar espacio libre final
         if (
             hora_cursor < hora_limite
             and (not ocultar_disponibles or solo_disponibles)
