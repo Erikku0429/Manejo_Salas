@@ -37,16 +37,25 @@ def generar_estilo_materia_inline(nombre_asignatura):
     return f"background: hsl({hue}, 65%, 15%); border-left: 4px solid hsl({hue}, 85%, 55%); color: hsl({hue}, 90%, 90%);"
 
 def formatear_12h(hora_24):
-    """Convierte un entero (7 a 19) a texto en formato 12 horas (ej. 7 -> 07:00 AM, 14 -> 02:00 PM)."""
+    """Convierte un entero (7 a 19) a string limpio en formato 12 horas (ej. 7 -> 07:00 AM, 14 -> 02:00 PM)."""
     h = int(hora_24)
     dt = datetime.time(hour=h)
-    return dt.strftime("%I:%00 %p").lstrip("0")
+    return dt.strftime("%I:00 %p").lstrip("0")
 
 def parsear_12h_a_24h(str_12h):
     """Convierte un texto tipo '02:00 PM' a entero de 24H (ej. 14)."""
     if isinstance(str_12h, (int, float)):
         return int(str_12h)
-    dt = datetime.datetime.strptime(str_12h.strip(), "%I:%00 %p")
+    
+    # Limpiar posibles caracteres extra o formateos residuales
+
+    str_clean = str(str_12h).replace("%00", ":00").strip()
+    # Si viene con minutos (ej: "11:00 AM")
+    if ":" in str_clean:
+        dt = datetime.datetime.strptime(str_clean, "%I:%M %p")
+    else:
+        dt = datetime.datetime.strptime(str_clean, "%I %p")
+        
     return dt.hour
 
 OPCIONES_HORAS_12H = [formatear_12h(h) for h in range(7, 20)]
