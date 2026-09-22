@@ -71,9 +71,12 @@ class HorarioController:
 
         self.db.guardar_horarios_masivos(registros_proyectados, fecha_inicio, fecha_fin)
 
-    def actualizar_horarios_desde_editor(self, df_editado):
-        """Sincroniza los cambios directos realizados desde la pestaña 'Edición Rápida'."""
-        f_ini, f_fin = self.db.obtener_rango_semestre()
+def actualizar_horarios_desde_editor(self, df_editado):
+        """Sincroniza las modificaciones manuales realizadas desde la pestaña 'Edición Rápida'."""
+        # Se utiliza el método correcto definido en DatabaseModel
+        es_vigente, msj, f_ini, f_fin = self.db.obtener_vigencia_semestre()
+        
+        # Si no hay un rango guardado previamente, establecer un rango por defecto
         if not f_ini or not f_fin:
             f_ini = datetime.date.today()
             f_fin = f_ini + datetime.timedelta(days=120)
