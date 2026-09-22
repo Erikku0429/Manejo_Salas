@@ -21,7 +21,7 @@ db = DatabaseModel()
 controller = HorarioController(db)
 
 # -----------------------------------------------------------------------------
-# FUNCIONES AUXILIARES Y SEGURIDAD
+# FUNCIONES AUXILIARES Y FORMATO 12 HORAS (AM/PM)
 # -----------------------------------------------------------------------------
 def normalizar_texto(texto):
     if not isinstance(texto, str):
@@ -35,6 +35,21 @@ def generar_estilo_materia_inline(nombre_asignatura):
     hash_hex = hashlib.md5(nombre_norm.encode("utf-8")).hexdigest()
     hue = int(hash_hex[:4], 16) % 360
     return f"background: hsl({hue}, 65%, 15%); border-left: 4px solid hsl({hue}, 85%, 55%); color: hsl({hue}, 90%, 90%);"
+
+def formatear_12h(hora_24):
+    """Convierte un entero (7 a 19) a texto en formato 12 horas (ej. 7 -> 07:00 AM, 14 -> 02:00 PM)."""
+    h = int(hora_24)
+    dt = datetime.time(hour=h)
+    return dt.strftime("%I:%00 %p").lstrip("0")
+
+def parsear_12h_a_24h(str_12h):
+    """Convierte un texto tipo '02:00 PM' a entero de 24H (ej. 14)."""
+    if isinstance(str_12h, (int, float)):
+        return int(str_12h)
+    dt = datetime.datetime.strptime(str_12h.strip(), "%I:%00 %p")
+    return dt.hour
+
+OPCIONES_HORAS_12H = [formatear_12h(h) for h in range(7, 20)]
 
 def resetear_filtros_callback():
     st.session_state["input_asig"] = ""
@@ -57,7 +72,7 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
     return False
 
 # -----------------------------------------------------------------------------
-# ESTILOS CSS CON EJE VERTICAL DE HORAS Y TARJETAS APILADAS
+# ESTILOS CSS CON EJE VERTICAL DE HORAS
 # -----------------------------------------------------------------------------
 st.markdown(
     """
@@ -115,7 +130,7 @@ st.markdown(
         padding: 8px 10px;
         border-radius: 6px;
         border: 1px solid rgba(128, 128, 128, 0.25);
-        min-width: 100px;
+        min-width: 110px;
         white-space: nowrap;
         vertical-align: middle;
     }
@@ -230,7 +245,7 @@ def mostrar_popup_evento_exito(nombre_evento, salon, fecha, hora_ini, hora_fin, 
         f"• **Evento:** **{nombre_evento}**\n"
         f"• **Lugar:** **{salon}**\n"
         f"• **Fecha:** **{fecha}**\n"
-        f"• **Horario:** **{hora_ini}:00 - {hora_fin}:00 hrs**\n"
+        f"• **Horario:** **{formatear_12h(hora_ini)} - {formatear_12h(hora_fin)}**\n"
         f"• **Responsable:** **{responsable}**"
     )
     if st.button("Ir a Próximos Eventos ➡️", type="primary", on_click=ir_a_pestaña, args=("📢 Próximos Eventos",)):
@@ -292,7 +307,7 @@ else:
     tab_edicion, tab_cargue, tab_eventos_adm = None, None, None
 
 # -----------------------------------------------------------------------------
-# RENDERIZADOR MATRICIAL CON HORAS A LA IZQUIERDA Y EXPANSION VERTICAL
+# RENDERIZADOR MATRICIAL CON HORAS EN FORMATO 12 HORAS (AM/PM) A LA IZQUIERDA
 # -----------------------------------------------------------------------------
 def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=False, dia_hoy_nombre=None, rango_horas=(7, 19)):
     h_min, h_max = rango_horas
@@ -312,7 +327,9 @@ def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=F
     html += "</tr></thead><tbody>"
 
     for h in franjas:
-        html += f"<tr><td class='header-time'>⏰ {h}:00 - {h+1}:00</td>"
+        lbl_h_ini = formatear_12h(h)
+        lbl_h_fin = formatear_12h(h + 1)
+        html += f"<tr><td class='header-time'>⏰ {lbl_h_ini} - {lbl_h_fin}</td>"
 
         for col in columnas:
             if skip_filas[col] > 0:
@@ -406,7 +423,7 @@ with tab_horarios:
             st.button("🧹 Limpiar Filtros", on_click=resetear_filtros_callback, use_container_width=True)
 
         rango_horas = st.slider(
-            "⏰ **Filtrar Franja Horaria (Horas exactas):**",
+            "⏰ **Filtrar Franja Horaria:**",
             min_value=7,
             max_value=19,
             value=st.session_state["input_horas"],
@@ -532,7 +549,7 @@ with tab_eventos_pub:
                                 <span style="font-size:0.80rem; font-weight:700; color:#10b981;">🏛️ {salon_ev}</span>
                             </div>
                             <div style="font-size:1.05rem; font-weight:800; margin-bottom:4px;">{titulo_ev}</div>
-                            <div style="font-size:0.82rem; opacity:0.85;">⏰ <b>Horario:</b> {h_i:02d}:00 - {h_f:02d}:00 hrs</div>
+                            <div style="font-size:0.82rem; opacity:0.85;">⏰ <b>Horario:</b> {formatear_12h(h_i)} - {formatear_12h(h_f)}</div>
                             <div style="font-size:0.82rem; opacity:0.85;">👨‍🏫 <b>Responsable:</b> {resp_ev}</div>
                             {obs_html}
                         </div>
@@ -540,7 +557,7 @@ with tab_eventos_pub:
                         st.markdown(card_agenda_html, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# TAB 3: EDICIÓN RÁPIDA DE MATERIAS (ADMIN)
+# TAB 3: EDICIÓN RÁPIDA DE MATERIAS (SIN ID Y EN FORMATO 12 HORAS)
 # -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_edicion:
     with tab_edicion:
@@ -552,27 +569,30 @@ if st.session_state.authenticated and tab_edicion:
         if df_db.empty:
             st.info("La base de datos se encuentra vacía. Un administrador debe realizar el cargue inicial.")
         else:
-            # Filtrar clases únicas para evitar duplicados en el editor
             df_unicos = df_db.drop_duplicates(subset=["espacio", "dia", "hora_inicio", "hora_fin", "asignatura", "docente"]).copy()
             
-            df_editor = df_unicos[["id", "espacio", "dia", "hora_inicio", "hora_fin", "asignatura", "docente"]].copy()
-            df_editor.columns = ["ID", "ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]
+            # Construcción de DataFrame sin columna ID y convirtiendo las horas a 12H
+            df_editor = pd.DataFrame()
+            df_editor["ESPACIO / SALÓN"] = df_unicos["espacio"].astype(str).str.upper()
+            df_editor["DÍA"] = df_unicos["dia"].astype(str).str.upper()
+            df_editor["HORA INICIO"] = df_unicos["hora_inicio"].apply(formatear_12h)
+            df_editor["HORA FIN"] = df_unicos["hora_fin"].apply(formatear_12h)
+            df_editor["ASIGNATURA"] = df_unicos["asignatura"].astype(str).str.upper()
+            df_editor["DOCENTE"] = df_unicos["docente"].astype(str).str.upper()
 
             salones_existentes = sorted([str(s).upper() for s in df_editor["ESPACIO / SALÓN"].unique() if pd.notna(s)])
 
-            st.info("💡 **Instrucciones:** Haz doble clic sobre cualquier casilla para editar los nombres de materias, docentes o salones. Haz clic en el botón '+' al final para agregar clases nuevas.")
+            st.info("💡 **Instrucciones:** Haz doble clic sobre cualquier casilla para editar. Usa las listas desplegables para las horas AM/PM.")
 
             df_modificado = st.data_editor(
                 df_editor,
                 num_rows="dynamic",
                 use_container_width=True,
-                disabled=["ID"],
                 column_config={
-                    "ID": st.column_config.NumberColumn("ID", disabled=True),
                     "ESPACIO / SALÓN": st.column_config.SelectboxColumn("Salón / Aula", options=salones_existentes, required=True),
                     "DÍA": st.column_config.SelectboxColumn("Día", options=["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"], required=True),
-                    "HORA INICIO (24H)": st.column_config.NumberColumn("Hora Inicio (7 a 18)", min_value=7, max_value=18, step=1, required=True),
-                    "HORA FIN (24H)": st.column_config.NumberColumn("Hora Fin (8 a 19)", min_value=8, max_value=19, step=1, required=True),
+                    "HORA INICIO": st.column_config.SelectboxColumn("Hora Inicio", options=OPCIONES_HORAS_12H[:-1], required=True),
+                    "HORA FIN": st.column_config.SelectboxColumn("Hora Fin", options=OPCIONES_HORAS_12H[1:], required=True),
                     "ASIGNATURA": st.column_config.TextColumn("Asignatura", required=True),
                     "DOCENTE": st.column_config.TextColumn("Docente / Responsable"),
                 },
@@ -582,7 +602,12 @@ if st.session_state.authenticated and tab_edicion:
             st.markdown("---")
             if st.button("💾 Guardar Cambios en la Base de Datos", type="primary"):
                 try:
-                    controller.actualizar_horarios_desde_editor(df_modificado)
+                    # Parsear las horas 12H a 24H antes de guardar en BD
+                    df_guardar = df_modificado.copy()
+                    df_guardar["HORA INICIO (24H)"] = df_guardar["HORA INICIO"].apply(parsear_12h_a_24h)
+                    df_guardar["HORA FIN (24H)"] = df_guardar["HORA FIN"].apply(parsear_12h_a_24h)
+
+                    controller.actualizar_horarios_desde_editor(df_guardar)
                     st.success("✅ ¡Base de datos actualizada con éxito!")
                     st.rerun()
                 except Exception as err:
@@ -611,43 +636,48 @@ if st.session_state.authenticated and tab_cargue:
                     df_edit = st.session_state.df_unicas[
                         ["ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]
                     ].copy()
-                    df_edit["ESPACIO / SALÓN"] = df_edit["ESPACIO / SALÓN"].str.upper()
-                    df_edit["DÍA"] = df_edit["DÍA"].str.upper()
-                    df_edit["ASIGNATURA"] = df_edit["ASIGNATURA"].str.upper()
-                    df_edit["DOCENTE"] = df_edit["DOCENTE"].str.upper()
+                    
+                    df_edit["HORA INICIO"] = df_edit["HORA INICIO (24H)"].apply(formatear_12h)
+                    df_edit["HORA FIN"] = df_edit["HORA FIN (24H)"].apply(formatear_12h)
+                    
+                    df_edit_vis = df_edit[["ESPACIO / SALÓN", "DÍA", "HORA INICIO", "HORA FIN", "ASIGNATURA", "DOCENTE"]].copy()
 
                     st.markdown("---")
                     st.markdown("### 3️⃣ Paso 3: Confirmar Oferta Académica")
 
-                    aulas_detectadas_excel = sorted(df_edit["ESPACIO / SALÓN"].unique().tolist())
+                    aulas_detectadas_excel = sorted(df_edit_vis["ESPACIO / SALÓN"].unique().tolist())
 
                     col_m1, col_m2, col_m3 = st.columns(3)
-                    col_m1.metric("📚 Clases a Programar", len(df_edit))
+                    col_m1.metric("📚 Clases a Programar", len(df_edit_vis))
                     col_m2.metric("🏛️ Aulas Asignadas", len(aulas_detectadas_excel))
-                    col_m3.metric("⏰ Horario Oficial Funcionarios", "07:00 a 19:00")
+                    col_m3.metric("⏰ Horario Oficial Funcionarios", "07:00 AM a 07:00 PM")
 
-                    df_editado = st.data_editor(
-                        df_edit,
+                    df_editado_vis = st.data_editor(
+                        df_edit_vis,
                         num_rows="dynamic",
                         use_container_width=True,
                         column_config={
                             "ESPACIO / SALÓN": st.column_config.SelectboxColumn("Salón / Aula", options=aulas_detectadas_excel, required=True),
                             "DÍA": st.column_config.SelectboxColumn("Día de la Semana", options=["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"], required=True),
-                            "HORA INICIO (24H)": st.column_config.NumberColumn("Hora Inicio (7 a 18)", min_value=7, max_value=18, step=1),
-                            "HORA FIN (24H)": st.column_config.NumberColumn("Hora Fin (8 a 19)", min_value=8, max_value=19, step=1),
+                            "HORA INICIO": st.column_config.SelectboxColumn("Hora Inicio", options=OPCIONES_HORAS_12H[:-1], required=True),
+                            "HORA FIN": st.column_config.SelectboxColumn("Hora Fin", options=OPCIONES_HORAS_12H[1:], required=True),
                             "ASIGNATURA": st.column_config.TextColumn("Asignatura / Materia", required=True),
                             "DOCENTE": st.column_config.TextColumn("Docente / Profesor"),
                         },
                     )
 
-                    errores_rango = controller.validar_rango_laboral(df_editado)
+                    df_editado_final = df_editado_vis.copy()
+                    df_editado_final["HORA INICIO (24H)"] = df_editado_final["HORA INICIO"].apply(parsear_12h_a_24h)
+                    df_editado_final["HORA FIN (24H)"] = df_editado_final["HORA FIN"].apply(parsear_12h_a_24h)
+
+                    errores_rango = controller.validar_rango_laboral(df_editado_final)
 
                     if errores_rango:
-                        st.error("🚨 **Horario No Permitido:** Hay clases configuradas fuera del rango oficial (07:00 a 19:00).")
+                        st.error("🚨 **Horario No Permitido:** Hay clases configuradas fuera del rango oficial (07:00 AM a 07:00 PM).")
                     else:
                         st.markdown("---")
                         if st.button("🚀 Confirmar y Guardar Semestre", type="primary"):
-                            controller.proyectar_y_guardar_semestre(df_editado, f_inicio, f_fin)
+                            controller.proyectar_y_guardar_semestre(df_editado_final, f_inicio, f_fin)
                             total_registros = len(db.obtener_todos_los_horarios())
                             mostrar_popup_exito(total_registros, f_inicio, f_fin)
 
@@ -665,8 +695,11 @@ if st.session_state.authenticated and tab_eventos_adm:
         ev_fecha = st.date_input("2️⃣ Fecha del Evento:", value=datetime.date.today())
 
         col_h1, col_h2 = st.columns(2)
-        ev_h_ini = col_h1.number_input("3️⃣ Hora Inicio (24H):", min_value=7, max_value=18, value=10)
-        ev_h_fin = col_h2.number_input("4️⃣ Hora Fin (24H):", min_value=8, max_value=19, value=12)
+        ev_h_ini_lbl = col_h1.selectbox("3️⃣ Hora Inicio:", options=OPCIONES_HORAS_12H[:-1], index=3)
+        ev_h_fin_lbl = col_h2.selectbox("4️⃣ Hora Fin:", options=OPCIONES_HORAS_12H[1:], index=4)
+
+        ev_h_ini = parsear_12h_a_24h(ev_h_ini_lbl)
+        ev_h_fin = parsear_12h_a_24h(ev_h_fin_lbl)
 
         ev_asig = st.text_input("5️⃣ Nombre del Evento / Clase Faltante:", placeholder="Ej. CONTINGENCIA MATEMATICAS")
         ev_doc = st.text_input("6️⃣ Responsable / Docente:", placeholder="Ej. ING. GARCÍA")
@@ -679,20 +712,20 @@ if st.session_state.authenticated and tab_eventos_adm:
 
         if conflictos:
             requiere_obs = True
-            st.error(f"🚨 **Espacio Ya Ocupado:** El salón **{ev_salon}** ya tiene programación el **{fecha_ev_str}** entre las **{ev_h_ini}:00 y {ev_h_fin}:00 hrs**:")
+            st.error(f"🚨 **Espacio Ya Ocupado:** El salón **{ev_salon}** ya tiene programación el **{fecha_ev_str}** entre las **{formatear_12h(ev_h_ini)} y {formatear_12h(ev_h_fin)}**:")
             for c in conflictos:
                 c_asig, c_doc, c_tipo, c_ini, c_fin = c[1].upper(), c[2].upper(), c[5].upper(), c[3], c[4]
-                st.warning(f"• **{c_asig}** ({c_tipo}) | Responsable: **{c_doc}** | Horario: {c_ini}:00 - {c_fin}:00")
+                st.warning(f"• **{c_asig}** ({c_tipo}) | Responsable: **{c_doc}** | Horario: {formatear_12h(c_ini)} - {formatear_12h(c_fin)}")
 
             st.markdown("---")
             ev_obs = st.text_area("7️⃣ Observaciones (OBLIGATORIO por ocupar un espacio asignado):", placeholder="Especifica la razón por la cual se reasigna el espacio...")
         else:
-            st.success(f"🟢 **Aula Libre:** El salón {ev_salon} está completamente disponible en la franja {ev_h_ini}:00 a {ev_h_fin}:00 hrs.")
+            st.success(f"🟢 **Aula Libre:** El salón {ev_salon} está completamente disponible en la franja {formatear_12h(ev_h_ini)} a {formatear_12h(ev_h_fin)}.")
 
         st.markdown("---")
         if st.button("💾 Guardar y Asignar Espacio", type="primary"):
             if ev_h_fin <= ev_h_ini:
-                st.error("La Hora Fin debe ser mayor a la Hora Inicio.")
+                st.error("La Hora Fin debe ser posterior a la Hora Inicio.")
             elif not ev_asig.strip() or not ev_doc.strip():
                 st.error("Debes ingresar el Nombre del Evento / Clase y el Responsable.")
             elif requiere_obs and not ev_obs.strip():
