@@ -63,7 +63,7 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
     return False
 
 # -----------------------------------------------------------------------------
-# ESTILOS CSS CON TÍTULO CENTRADO Y TRANSICIONES INTERACTIVAS
+# ESTILOS CSS ADAPTATIVOS (MODO CLARO Y OSCURO + ALINEACIÓN SIMÉTRICA)
 # -----------------------------------------------------------------------------
 st.markdown(
     """
@@ -73,8 +73,36 @@ st.markdown(
         font-weight: 800;
         margin-top: 0px;
         margin-bottom: 4px;
-        color: #f8fafc;
+        color: var(--text-color);
         text-align: center;
+    }
+
+    /* Títulos de Salones con altura fija e igualitaria para evitar asimetría */
+    .salon-header-box {
+        height: 75px !important;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        border-radius: 8px;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.25);
+        margin-bottom: 12px;
+        padding: 6px;
+        box-sizing: border-box;
+        text-align: center;
+    }
+
+    .salon-title {
+        font-weight: 800;
+        font-size: 0.85rem;
+        color: #10b981; /* Verde esmeralda con alto contraste en tema claro y oscuro */
+        line-height: 1.2;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+        text-overflow: ellipsis;
     }
 
     .day-header-box {
@@ -84,8 +112,8 @@ st.markdown(
         justify-content: center;
         align-items: center;
         border-radius: 8px;
-        background: rgba(255, 255, 255, 0.03);
-        border: 1px solid rgba(255, 255, 255, 0.08);
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(128, 128, 128, 0.25);
         margin-bottom: 12px;
         box-sizing: border-box;
     }
@@ -96,46 +124,59 @@ st.markdown(
         box-shadow: 0 0 10px rgba(16, 185, 129, 0.3);
     }
 
+    .day-header-hoy .day-title {
+        color: #6ee7b7 !important;
+    }
+
     .day-title {
         font-weight: 800;
         font-size: 1.05rem;
         margin: 0;
         line-height: 1.2;
+        color: var(--text-color);
     }
 
     .day-date {
         font-size: 0.82rem;
-        opacity: 0.8;
+        opacity: 0.85;
         margin-top: 2px;
+        color: var(--text-color);
     }
 
     .class-card, .card-disponible {
         border-radius: 6px;
         padding: 8px 10px;
         margin-bottom: 8px;
-        min-height: 85px;
+        min-height: 90px;
         display: flex;
         flex-direction: column;
         justify-content: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+        box-shadow: 0 2px 4px rgba(0,0,0,0.15);
         box-sizing: border-box;
         cursor: pointer;
         position: relative;
         outline: none;
-        transition: transform 0.18s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.18s ease-in-out, z-index 0s 0.18s;
+        transition: transform 0.18s cubic-bezier(0.25, 1, 0.5, 1), box-shadow 0.18s ease-in-out;
     }
 
     .class-card-evento {
         background: linear-gradient(135deg, #451a03 0%, #1c0901 100%) !important;
         border-left: 4px solid #f59e0b !important;
+        color: #fef3c7 !important;
     }
 
     .card-disponible {
-        background: rgba(16, 185, 129, 0.10);
+        background: rgba(16, 185, 129, 0.12);
         border: 1px dashed #10b981;
         border-left: 4px solid #10b981;
-        color: #a7f3d0;
+        color: #047857;
         text-align: center;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        .card-disponible {
+            color: #a7f3d0;
+        }
     }
 
     .class-title {
@@ -149,7 +190,7 @@ st.markdown(
 
     .class-doc {
         font-size: 0.74rem;
-        opacity: 0.85;
+        opacity: 0.9;
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -159,26 +200,28 @@ st.markdown(
         font-size: 0.70rem;
         font-weight: 600;
         margin-bottom: 3px;
-        opacity: 0.9;
+        opacity: 0.95;
     }
 
     .event-agenda-card {
-        background: linear-gradient(135deg, #2e1005 0%, #170701 100%);
-        border: 1px solid #78350f;
+        background: var(--secondary-background-color);
+        border: 1px solid rgba(245, 158, 11, 0.4);
         border-left: 5px solid #f59e0b;
         border-radius: 8px;
         padding: 14px;
         margin-bottom: 14px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        color: var(--text-color);
     }
 
     .excel-template-box {
-        background-color: rgba(255, 255, 255, 0.04);
+        background-color: var(--secondary-background-color);
         border: 2px dashed #8b5cf6;
         border-radius: 8px;
         padding: 16px;
         margin-top: 10px;
         font-family: monospace;
+        color: var(--text-color);
     }
     </style>
 """,
@@ -344,238 +387,230 @@ def renderizar_matriz_semanal_aula(
     solo_disponibles=False,
     rango_horas=(7, 19),
 ):
-  MAPA_DIAS_INDEX = {
-      "LUNES": 0,
-      "MARTES": 1,
-      "MIÉRCOLES": 2,
-      "JUEVES": 3,
-      "VIERNES": 4,
-      "SÁBADO": 5,
-      "DOMINGO": 6,
-  }
+    MAPA_DIAS_INDEX = {
+        "LUNES": 0,
+        "MARTES": 1,
+        "MIÉRCOLES": 2,
+        "JUEVES": 3,
+        "VIERNES": 4,
+        "SÁBADO": 5,
+        "DOMINGO": 6,
+    }
 
-  cols_dias = st.columns(len(dias_semana_nombres))
-  salon_upper = str(nombre_aula).upper() if nombre_aula else None
-  hora_min_filtro, hora_max_filtro = rango_horas
-  es_admin = st.session_state.authenticated
+    cols_dias = st.columns(len(dias_semana_nombres))
+    salon_upper = str(nombre_aula).upper() if nombre_aula else None
+    hora_min_filtro, hora_max_filtro = rango_horas
+    es_admin = st.session_state.authenticated
 
-  # Obtener el listado total de aulas registradas en el DataFrame general
-  aulas_totales = (
-      sorted(
-          [
-              str(s).upper()
-              for s in df_aula["espacio"].unique()
-              if pd.notna(s) and str(s).strip()
-          ]
-      )
-      if "espacio" in df_aula.columns
-      else []
-  )
+    aulas_totales = (
+        sorted(
+            [
+                str(s).upper()
+                for s in df_aula["espacio"].unique()
+                if pd.notna(s) and str(s).strip()
+            ]
+        )
+        if "espacio" in df_aula.columns
+        else []
+    )
 
-  for idx_col, dia_nom in enumerate(dias_semana_nombres):
-    idx_d = MAPA_DIAS_INDEX.get(dia_nom.upper(), idx_col)
-    fecha_dia_actual = lunes_semana + datetime.timedelta(days=idx_d)
-    dia_norm = normalizar_texto(dia_nom)
-    es_dia_hoy = fecha_dia_actual == fecha_hoy
+    for idx_col, dia_nom in enumerate(dias_semana_nombres):
+        idx_d = MAPA_DIAS_INDEX.get(dia_nom.upper(), idx_col)
+        fecha_dia_actual = lunes_semana + datetime.timedelta(days=idx_d)
+        dia_norm = normalizar_texto(dia_nom)
+        es_dia_hoy = fecha_dia_actual == fecha_hoy
 
-    with cols_dias[idx_col]:
-      header_class = (
-          "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
-      )
-      hoy_badge = (
-          "<div style='font-size:0.65rem; font-weight:800; color:#6ee7b7;"
-          " margin-bottom:1px;'>📍 HOY</div>"
-          if es_dia_hoy
-          else ""
-      )
-      color_title = "#6ee7b7" if es_dia_hoy else "#f8fafc"
-      fecha_fmt = fecha_dia_actual.strftime("%d/%m")
-
-      header_html = (
-          f"<div class='{header_class}'>"
-          f"{hoy_badge}"
-          f"<div class='day-title' style='color:{color_title};'>{dia_nom}</div>"
-          f"<div class='day-date'>{fecha_fmt}</div>"
-          "</div>"
-      )
-      st.markdown(header_html, unsafe_allow_html=True)
-
-      clases_dia = df_aula[
-          df_aula["dia"].apply(normalizar_texto) == dia_norm
-      ].sort_values(by="hora_inicio")
-
-      hora_cursor = hora_min_filtro
-      hora_limite = hora_max_filtro
-
-      # Función auxiliar interna para renderizar bloques de "VARIAS AULAS"
-      def renderizar_bloque_disponible(h_inicio_bloque, h_fin_bloque):
-        if salon_upper:
-          label_btn = (
-              f"🟢 DISPONIBLE\n⏰ {h_inicio_bloque:02d}:00 -"
-              f" {h_fin_bloque:02d}:00 | {salon_upper}"
-          )
-          if es_admin:
-            with st.popover(label_btn, use_container_width=True):
-              st.markdown(
-                  f"**➕ Asignar Clase / Materia en {salon_upper}**\n"
-                  f"*Día: {dia_nom} ({fecha_dia_actual})*"
-              )
-              f_asig = st.text_input(
-                  "Asignatura:",
-                  key=(
-                      f"pop_a_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
-                  ),
-              )
-              f_doc = st.text_input(
-                  "Docente:",
-                  key=(
-                      f"pop_d_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
-                  ),
-              )
-              col_p1, col_p2 = st.columns(2)
-              f_h1 = col_p1.number_input(
-                  "Hora Inicio:",
-                  min_value=7,
-                  max_value=18,
-                  value=h_inicio_bloque,
-                  key=(
-                      f"pop_h1_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
-                  ),
-              )
-              f_h2 = col_p2.number_input(
-                  "Hora Fin:",
-                  min_value=8,
-                  max_value=19,
-                  value=min(h_inicio_bloque + 2, 19),
-                  key=(
-                      f"pop_h2_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
-                  ),
-              )
-
-              if st.button(
-                  "💾 Asignar Espacio",
-                  key=(
-                      f"btn_save_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
-                  ),
-                  type="primary",
-              ):
-                if f_asig.strip() and f_doc.strip():
-                  db.agregar_evento_especial(
-                      salon_upper,
-                      fecha_dia_actual.strftime("%Y-%m-%d"),
-                      f_h1,
-                      f_h2,
-                      f_asig,
-                      f_doc,
-                      "Asignación rápida de espacio",
-                  )
-                  st.success("¡Espacio asignado!")
-                  st.rerun()
-          else:
-            card_free = (
-                "<div class='card-disponible' tabindex='0'><div"
-                " style='font-weight:700; font-size:0.85rem;'>🟢"
-                " DISPONIBLE</div><div class='class-time'"
-                f" style='margin-top:3px;'>⏰ {h_inicio_bloque:02d}:00 -"
-                f" {h_fin_bloque:02d}:00 | {salon_upper}</div></div>"
+        with cols_dias[idx_col]:
+            header_class = (
+                "day-header-box day-header-hoy" if es_dia_hoy else "day-header-box"
             )
-            st.markdown(card_free, unsafe_allow_html=True)
-        else:
-          # VISTA DE VARIAS AULAS: Calcular qué salas específicas no tienen clase en este hueco
-          aulas_ocupadas_franja = set(
-              clases_dia[
-                  (clases_dia["hora_inicio"] < h_fin_bloque)
-                  & (clases_dia["hora_fin"] > h_inicio_bloque)
-              ]["espacio"]
-              .apply(lambda x: str(x).upper())
-              .unique()
-          )
-          aulas_libres_franja = [
-              a for a in aulas_totales if a not in aulas_ocupadas_franja
-          ]
-
-          label_btn = (
-              f"🟢 DISPONIBLE\n⏰ {h_inicio_bloque:02d}:00 -"
-              f" {h_fin_bloque:02d}:00 | VARIAS AULAS"
-          )
-
-          with st.popover(label_btn, use_container_width=True):
-            st.markdown(
-                f"##### 🏛️ **Aulas Disponibles ({h_inicio_bloque:02d}:00 -"
-                f" {h_fin_bloque:02d}:00)**"
-            )
-            if aulas_libres_franja:
-              st.caption(
-                  "Las siguientes salas no tienen clases programadas en esta"
-                  " franja:"
-              )
-              for a_libre in aulas_libres_franja:
-                st.markdown(f"• 🟢 **{a_libre}**")
-            else:
-              st.info(
-                  "No hay salas completamente libres en esta franja horaria."
-              )
-
-      # Caso 1: No hay clases en todo el día
-      if clases_dia.empty:
-        if (
-            not ocultar_disponibles or solo_disponibles
-        ) and hora_limite > hora_cursor:
-          renderizar_bloque_disponible(hora_cursor, hora_limite)
-      else:
-        # Caso 2: Recorrer clases del día
-        for _, c in clases_dia.iterrows():
-          h_ini = int(c["hora_inicio"])
-          h_fin = int(c["hora_fin"])
-
-          h_ini_vis = max(h_ini, hora_min_filtro)
-          h_fin_vis = min(h_fin, hora_max_filtro)
-          salon_row = str(c["espacio"]).upper()
-
-          # Renderizar espacio libre previo
-          if h_ini_vis > hora_cursor:
-            if not ocultar_disponibles or solo_disponibles:
-              renderizar_bloque_disponible(hora_cursor, h_ini_vis)
-
-          # Renderizar clase ocupada
-          if not solo_disponibles and h_fin_vis > h_ini_vis:
-            tipo_ev = str(c.get("tipo_evento", "")).lower()
-            es_evento = tipo_ev == "evento"
-            asig_upper = str(c.get("asignatura", "")).upper()
-            doc_upper = str(c.get("docente", "")).upper()
-
-            obs_val = c.get("observacion", "")
-            obs_txt = (
-                f"<br><small><b>Obs:</b> {str(obs_val).upper()}</small>"
-                if pd.notna(obs_val) and str(obs_val).strip()
+            hoy_badge = (
+                "<div style='font-size:0.65rem; font-weight:800; color:#6ee7b7;"
+                " margin-bottom:1px;'>📍 HOY</div>"
+                if es_dia_hoy
                 else ""
             )
+            fecha_fmt = fecha_dia_actual.strftime("%d/%m")
 
-            if es_evento:
-              style_card = ""
-              class_attr = "class-card class-card-evento"
-            else:
-              style_card = generar_estilo_color_materia(asig_upper)
-              class_attr = "class-card"
-
-            card_class_html = (
-                f"<div class='{class_attr}' style='{style_card}'"
-                f" tabindex='0'><div class='class-time'>⏰ {h_ini:02d}:00 -"
-                f" {h_fin:02d}:00 | {salon_row}</div><div class='class-title'"
-                f" title='{asig_upper}'>{asig_upper}</div><div"
-                f" class='class-doc' title='{doc_upper}'>👨‍🏫"
-                f" {doc_upper}{obs_txt}</div></div>"
+            header_html = (
+                f"<div class='{header_class}'>"
+                f"{hoy_badge}"
+                f"<div class='day-title'>{dia_nom}</div>"
+                f"<div class='day-date'>{fecha_fmt}</div>"
+                "</div>"
             )
-            st.markdown(card_class_html, unsafe_allow_html=True)
+            st.markdown(header_html, unsafe_allow_html=True)
 
-          hora_cursor = max(hora_cursor, h_fin_vis)
+            clases_dia = df_aula[
+                df_aula["dia"].apply(normalizar_texto) == dia_norm
+            ].sort_values(by="hora_inicio")
 
-        # Renderizar espacio libre final
-        if (
-            hora_cursor < hora_limite
-            and (not ocultar_disponibles or solo_disponibles)
-        ):
-          renderizar_bloque_disponible(hora_cursor, hora_limite)
+            hora_cursor = hora_min_filtro
+            hora_limite = hora_max_filtro
+
+            def renderizar_bloque_disponible(h_inicio_bloque, h_fin_bloque):
+                if salon_upper:
+                    label_btn = (
+                        f"🟢 DISPONIBLE\n⏰ {h_inicio_bloque:02d}:00 -"
+                        f" {h_fin_bloque:02d}:00 | {salon_upper}"
+                    )
+                    if es_admin:
+                        with st.popover(label_btn, use_container_width=True):
+                            st.markdown(
+                                f"**➕ Asignar Clase / Materia en {salon_upper}**\n"
+                                f"*Día: {dia_nom} ({fecha_dia_actual})*"
+                            )
+                            f_asig = st.text_input(
+                                "Asignatura:",
+                                key=(
+                                    f"pop_a_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
+                                ),
+                            )
+                            f_doc = st.text_input(
+                                "Docente:",
+                                key=(
+                                    f"pop_d_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
+                                ),
+                            )
+                            col_p1, col_p2 = st.columns(2)
+                            f_h1 = col_p1.number_input(
+                                "Hora Inicio:",
+                                min_value=7,
+                                max_value=18,
+                                value=h_inicio_bloque,
+                                key=(
+                                    f"pop_h1_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
+                                ),
+                            )
+                            f_h2 = col_p2.number_input(
+                                "Hora Fin:",
+                                min_value=8,
+                                max_value=19,
+                                value=min(h_inicio_bloque + 2, 19),
+                                key=(
+                                    f"pop_h2_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
+                                ),
+                            )
+
+                            if st.button(
+                                "💾 Asignar Espacio",
+                                key=(
+                                    f"btn_save_{salon_upper}_{fecha_dia_actual}_{h_inicio_bloque}"
+                                ),
+                                type="primary",
+                            ):
+                                if f_asig.strip() and f_doc.strip():
+                                    db.agregar_evento_especial(
+                                        salon_upper,
+                                        fecha_dia_actual.strftime("%Y-%m-%d"),
+                                        f_h1,
+                                        f_h2,
+                                        f_asig,
+                                        f_doc,
+                                        "Asignación rápida de espacio",
+                                    )
+                                    st.success("¡Espacio asignado!")
+                                    st.rerun()
+                    else:
+                        card_free = (
+                            "<div class='card-disponible' tabindex='0'><div"
+                            " style='font-weight:700; font-size:0.85rem;'>🟢"
+                            " DISPONIBLE</div><div class='class-time'"
+                            f" style='margin-top:3px;'>⏰ {h_inicio_bloque:02d}:00 -"
+                            f" {h_fin_bloque:02d}:00 | {salon_upper}</div></div>"
+                        )
+                        st.markdown(card_free, unsafe_allow_html=True)
+                else:
+                    aulas_ocupadas_franja = set(
+                        clases_dia[
+                            (clases_dia["hora_inicio"] < h_fin_bloque)
+                            & (clases_dia["hora_fin"] > h_inicio_bloque)
+                        ]["espacio"]
+                        .apply(lambda x: str(x).upper())
+                        .unique()
+                    )
+                    aulas_libres_franja = [
+                        a for a in aulas_totales if a not in aulas_ocupadas_franja
+                    ]
+
+                    label_btn = (
+                        f"🟢 DISPONIBLE\n⏰ {h_inicio_bloque:02d}:00 -"
+                        f" {h_fin_bloque:02d}:00 | VARIAS AULAS"
+                    )
+
+                    with st.popover(label_btn, use_container_width=True):
+                        st.markdown(
+                            f"##### 🏛️ **Aulas Disponibles ({h_inicio_bloque:02d}:00 -"
+                            f" {h_fin_bloque:02d}:00)**"
+                        )
+                        if aulas_libres_franja:
+                            st.caption(
+                                "Las siguientes salas no tienen clases programadas en esta"
+                                " franja:"
+                            )
+                            for a_libre in aulas_libres_franja:
+                                st.markdown(f"• 🟢 **{a_libre}**")
+                        else:
+                            st.info(
+                                "No hay salas completamente libres en esta franja horaria."
+                            )
+
+            if clases_dia.empty:
+                if (
+                    not ocultar_disponibles or solo_disponibles
+                ) and hora_limite > hora_cursor:
+                    renderizar_bloque_disponible(hora_cursor, hora_limite)
+            else:
+                for _, c in clases_dia.iterrows():
+                    h_ini = int(c["hora_inicio"])
+                    h_fin = int(c["hora_fin"])
+
+                    h_ini_vis = max(h_ini, hora_min_filtro)
+                    h_fin_vis = min(h_fin, hora_max_filtro)
+                    salon_row = str(c["espacio"]).upper()
+
+                    if h_ini_vis > hora_cursor:
+                        if not ocultar_disponibles or solo_disponibles:
+                            renderizar_bloque_disponible(hora_cursor, h_ini_vis)
+
+                    if not solo_disponibles and h_fin_vis > h_ini_vis:
+                        tipo_ev = str(c.get("tipo_evento", "")).lower()
+                        es_evento = tipo_ev == "evento"
+                        asig_upper = str(c.get("asignatura", "")).upper()
+                        doc_upper = str(c.get("docente", "")).upper()
+
+                        obs_val = c.get("observacion", "")
+                        obs_txt = (
+                            f"<br><small><b>Obs:</b> {str(obs_val).upper()}</small>"
+                            if pd.notna(obs_val) and str(obs_val).strip()
+                            else ""
+                        )
+
+                        if es_evento:
+                            style_card = ""
+                            class_attr = "class-card class-card-evento"
+                        else:
+                            style_card = generar_estilo_color_materia(asig_upper)
+                            class_attr = "class-card"
+
+                        card_class_html = (
+                            f"<div class='{class_attr}' style='{style_card}'"
+                            f" tabindex='0'><div class='class-time'>⏰ {h_ini:02d}:00 -"
+                            f" {h_fin:02d}:00 | {salon_row}</div><div class='class-title'"
+                            f" title='{asig_upper}'>{asig_upper}</div><div"
+                            f" class='class-doc' title='{doc_upper}'>👨‍🏫"
+                            f" {doc_upper}{obs_txt}</div></div>"
+                        )
+                        st.markdown(card_class_html, unsafe_allow_html=True)
+
+                    hora_cursor = max(hora_cursor, h_fin_vis)
+
+                if (
+                    hora_cursor < hora_limite
+                    and (not ocultar_disponibles or solo_disponibles)
+                ):
+                    renderizar_bloque_disponible(hora_cursor, hora_limite)
+
 # -----------------------------------------------------------------------------
 # TAB 1: CONSULTA DE HORARIOS PÚBLICA
 # -----------------------------------------------------------------------------
@@ -678,7 +713,6 @@ with tab_horarios:
                 and not solo_disponibles
                 and not filtro_hora_activo
             ):
-                # Obtener el nombre del día de hoy en español
                 MAPA_DIAS_ESP = {
                     0: "LUNES",
                     1: "MARTES",
@@ -694,13 +728,17 @@ with tab_horarios:
                     f"##### 📍 **Vista General del Día:** {dia_nombre_hoy} ({fecha_hoy.strftime('%d/%m/%Y')})"
                 )
 
-                # Columnas verticales por salón para el día de hoy
                 cols_salones = st.columns(len(salones_unicos))
 
                 for idx_s, salon in enumerate(salones_unicos):
                     with cols_salones[idx_s]:
+                        # Uso de la clase salon-header-box con altura simétrica estricta
                         st.markdown(
-                            f"<div class='day-header-box' style='height: auto; padding: 8px; margin-bottom: 12px; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.15);'><div class='day-title' style='color: #6ee7b7; text-align: center;'>🏛️ {salon}</div></div>",
+                            f"""
+                            <div class='salon-header-box'>
+                                <div class='salon-title'>🏛️ {salon}</div>
+                            </div>
+                            """,
                             unsafe_allow_html=True,
                         )
 
@@ -790,7 +828,7 @@ with tab_eventos_pub:
                         obs_ev = row_ev.get("observacion", "")
 
                         obs_html = (
-                            f"<div style='font-size:0.78rem; color:#fcd34d; margin-top:4px;'><b>Nota:</b> {obs_ev.upper()}</div>"
+                            f"<div style='font-size:0.78rem; color:#f59e0b; margin-top:4px;'><b>Nota:</b> {obs_ev.upper()}</div>"
                             if pd.notna(obs_ev) and str(obs_ev).strip() else ""
                         )
 
@@ -798,11 +836,11 @@ with tab_eventos_pub:
                         <div class="event-agenda-card">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
                                 <span style="background:#f59e0b; color:#000; font-size:0.72rem; font-weight:800; padding:2px 8px; border-radius:4px;">📆 {fecha_card_fmt}</span>
-                                <span style="font-size:0.80rem; font-weight:700; color:#fbbf24;">🏛️ {salon_ev}</span>
+                                <span style="font-size:0.80rem; font-weight:700; color:#10b981;">🏛️ {salon_ev}</span>
                             </div>
-                            <div style="font-size:1.05rem; font-weight:800; color:#f8fafc; margin-bottom:4px;">{titulo_ev}</div>
-                            <div style="font-size:0.82rem; color:#d1d5db;">⏰ <b>Horario:</b> {h_i:02d}:00 - {h_f:02d}:00 hrs</div>
-                            <div style="font-size:0.82rem; color:#d1d5db;">👨‍🏫 <b>Responsable:</b> {resp_ev}</div>
+                            <div style="font-size:1.05rem; font-weight:800; margin-bottom:4px;">{titulo_ev}</div>
+                            <div style="font-size:0.82rem; opacity:0.85;">⏰ <b>Horario:</b> {h_i:02d}:00 - {h_f:02d}:00 hrs</div>
+                            <div style="font-size:0.82rem; opacity:0.85;">👨‍🏫 <b>Responsable:</b> {resp_ev}</div>
                             {obs_html}
                         </div>
                         """
