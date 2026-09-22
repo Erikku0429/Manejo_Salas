@@ -236,7 +236,23 @@ class HorarioController:
               "tipo_evento": "clase",
               "observacion": "",
           })
+          
 
     df_final = pd.DataFrame(registros_proyectados)
     self.db.reemplazar_horarios_semestre(df_final, f_inicio, f_fin)
     return len(df_final)
+  
+  def actualizar_horarios_desde_editor(self, df_editado):
+    """Sincroniza las modificaciones manuales realizadas en el editor con la BD."""
+    # 1. Normalizar textos
+    df_editado["ESPACIO / SALÓN"] = df_editado["ESPACIO / SALÓN"].str.upper().str.strip()
+    df_editado["DÍA"] = df_editado["DÍA"].str.upper().str.strip()
+    df_editado["ASIGNATURA"] = df_editado["ASIGNATURA"].str.upper().str.strip()
+    df_editado["DOCENTE"] = df_editado["DOCENTE"].str.upper().str.strip()
+
+    # 2. Reemplazar registros en la base de datos
+    self.db.vaciar_base_de_datos()
+    f_ini, f_fin = self.db.obtener_rango_semestre()
+    
+    # Reproyectar los datos ajustados
+    self.proyectar_y_guardar_semestre(df_editado, f_ini, f_fin)

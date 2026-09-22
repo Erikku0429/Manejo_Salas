@@ -31,7 +31,6 @@ def normalizar_texto(texto):
     return "".join([c for c in nfkd if not unicodedata.combining(c)])
 
 def generar_estilo_materia_inline(nombre_asignatura):
-    """Genera fondo oscuro, borde vivo y texto claro según el hash del nombre."""
     nombre_norm = normalizar_texto(nombre_asignatura)
     hash_hex = hashlib.md5(nombre_norm.encode("utf-8")).hexdigest()
     hue = int(hash_hex[:4], 16) % 360
@@ -72,7 +71,6 @@ st.markdown(
         text-align: center;
     }
 
-    /* Contenedor responsivo para la matriz */
     .vertical-schedule-container {
         width: 100%;
         overflow-x: auto;
@@ -90,7 +88,6 @@ st.markdown(
         text-align: center;
     }
 
-    /* Encabezados Superiores (Salones o Días) */
     .grid-vertical-table th.header-col {
         background: var(--secondary-background-color);
         color: #10b981;
@@ -110,7 +107,6 @@ st.markdown(
         box-shadow: 0 0 8px rgba(16, 185, 129, 0.3);
     }
 
-    /* Encabezados Izquierdos (Franjas Horarias) */
     .grid-vertical-table td.header-time {
         background: var(--secondary-background-color);
         color: var(--text-color);
@@ -124,7 +120,6 @@ st.markdown(
         vertical-align: middle;
     }
 
-    /* Tarjetas Ocupadas */
     .card-cell-occupied {
         border-radius: 6px;
         padding: 8px 6px;
@@ -150,7 +145,6 @@ st.markdown(
         color: #fef3c7 !important;
     }
 
-    /* Tarjetas Disponibles */
     .card-cell-free {
         background: rgba(16, 185, 129, 0.06);
         color: #10b981;
@@ -276,7 +270,13 @@ else:
 st.markdown("---")
 
 if st.session_state.authenticated:
-    lista_tabs = ["📅 Consulta de Horarios (Público / QR)", "📢 Próximos Eventos", "📋 Confirmación de Carga Semestral (Admin)", "➕ Eventos y Cambios (Admin)"]
+    lista_tabs = [
+        "📅 Consulta de Horarios (Público / QR)",
+        "📢 Próximos Eventos",
+        "✏️ Edición Rápida de Materias (Admin)",
+        "📋 Confirmación de Carga Semestral (Admin)",
+        "➕ Eventos y Cambios (Admin)",
+    ]
 else:
     lista_tabs = ["📅 Consulta de Horarios (Público / QR)", "📢 Próximos Eventos"]
 
@@ -286,10 +286,10 @@ if "active_tab" not in st.session_state or st.session_state["active_tab"] not in
 tabs = st.tabs(lista_tabs)
 
 if st.session_state.authenticated:
-    tab_horarios, tab_eventos_pub, tab_cargue, tab_eventos_adm = tabs[0], tabs[1], tabs[2], tabs[3]
+    tab_horarios, tab_eventos_pub, tab_edicion, tab_cargue, tab_eventos_adm = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4]
 else:
     tab_horarios, tab_eventos_pub = tabs[0], tabs[1]
-    tab_cargue, tab_eventos_adm = None, None
+    tab_edicion, tab_cargue, tab_eventos_adm = None, None, None
 
 # -----------------------------------------------------------------------------
 # RENDERIZADOR MATRICIAL CON HORAS A LA IZQUIERDA Y EXPANSION VERTICAL
@@ -298,13 +298,11 @@ def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=F
     h_min, h_max = rango_horas
     franjas = list(range(h_min, h_max))
 
-    # Diccionario para rastrear cuántos bloques verticales le quedan a cada columna
     skip_filas = {col: 0 for col in columnas}
 
     html = "<div class='vertical-schedule-container'><table class='grid-vertical-table'><thead><tr>"
     html += "<th class='header-time' style='text-align:center;'>HORA / FRANJA</th>"
-    
-    # Encabezados de columnas (Aulas o Días)
+
     for col in columnas:
         es_hoy = es_vista_dias and dia_hoy_nombre and normalizar_texto(col) == normalizar_texto(dia_hoy_nombre)
         cls_header = "header-col header-col-hoy" if es_hoy else "header-col"
@@ -313,12 +311,10 @@ def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=F
         html += f"<th class='{cls_header}'>{prefix}{icon}{col}</th>"
     html += "</tr></thead><tbody>"
 
-    # Recorrer fila por fila (por hora)
     for h in franjas:
         html += f"<tr><td class='header-time'>⏰ {h}:00 - {h+1}:00</td>"
 
         for col in columnas:
-            # Si esta celda está siendo abarcada por un rowspan anterior, se omite
             if skip_filas[col] > 0:
                 skip_filas[col] -= 1
                 continue
@@ -345,7 +341,6 @@ def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=F
                 if rowspan < 1:
                     rowspan = 1
 
-                # Guardar las filas siguientes que deben saltarse
                 skip_filas[col] = rowspan - 1
 
                 asig = str(c["asignatura"]).upper()
@@ -429,7 +424,6 @@ with tab_horarios:
         q_asig = normalizar_texto(busqueda_asig)
         q_doc = normalizar_texto(busqueda_doc)
 
-        # CASO 1: VISTA GENERAL DE TODOS LOS SALONES PARA UN DÍA ESPECÍFICO
         if salon_sel == "TODOS":
             dia_def_idx = min(fecha_hoy.weekday(), 5)
             dia_seleccionado = st.radio("📌 **Seleccionar Día de Consulta:**", DIAS_NOMBRES, index=dia_def_idx, horizontal=True)
@@ -454,8 +448,6 @@ with tab_horarios:
                 es_vista_dias=False,
                 rango_horas=rango_horas
             )
-
-        # CASO 2: VISTA SEMANAL INDIVIDUAL PARA UN SALÓN SELECCIONADO
         else:
             sabado_semana = lunes_semana + datetime.timedelta(days=5)
             df_filtered = df_horarios.copy()
@@ -548,7 +540,56 @@ with tab_eventos_pub:
                         st.markdown(card_agenda_html, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# TAB 3 & 4: ADMINISTRACIÓN
+# TAB 3: EDICIÓN RÁPIDA DE MATERIAS (ADMIN)
+# -----------------------------------------------------------------------------
+if st.session_state.authenticated and tab_edicion:
+    with tab_edicion:
+        st.subheader("✏️ Edición Directa de Horarios y Materias")
+        st.caption("Modifica, agrega o elimina clases directamente en la tabla interactiva sin recargar la base de datos.")
+
+        df_db = db.obtener_todos_los_horarios()
+
+        if df_db.empty:
+            st.info("La base de datos se encuentra vacía. Un administrador debe realizar el cargue inicial.")
+        else:
+            # Filtrar clases únicas para evitar duplicados en el editor
+            df_unicos = df_db.drop_duplicates(subset=["espacio", "dia", "hora_inicio", "hora_fin", "asignatura", "docente"]).copy()
+            
+            df_editor = df_unicos[["id", "espacio", "dia", "hora_inicio", "hora_fin", "asignatura", "docente"]].copy()
+            df_editor.columns = ["ID", "ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]
+
+            salones_existentes = sorted([str(s).upper() for s in df_editor["ESPACIO / SALÓN"].unique() if pd.notna(s)])
+
+            st.info("💡 **Instrucciones:** Haz doble clic sobre cualquier casilla para editar los nombres de materias, docentes o salones. Haz clic en el botón '+' al final para agregar clases nuevas.")
+
+            df_modificado = st.data_editor(
+                df_editor,
+                num_rows="dynamic",
+                use_container_width=True,
+                disabled=["ID"],
+                column_config={
+                    "ID": st.column_config.NumberColumn("ID", disabled=True),
+                    "ESPACIO / SALÓN": st.column_config.SelectboxColumn("Salón / Aula", options=salones_existentes, required=True),
+                    "DÍA": st.column_config.SelectboxColumn("Día", options=["LUNES", "MARTES", "MIÉRCOLES", "JUEVES", "VIERNES", "SÁBADO"], required=True),
+                    "HORA INICIO (24H)": st.column_config.NumberColumn("Hora Inicio (7 a 18)", min_value=7, max_value=18, step=1, required=True),
+                    "HORA FIN (24H)": st.column_config.NumberColumn("Hora Fin (8 a 19)", min_value=8, max_value=19, step=1, required=True),
+                    "ASIGNATURA": st.column_config.TextColumn("Asignatura", required=True),
+                    "DOCENTE": st.column_config.TextColumn("Docente / Responsable"),
+                },
+                key="editor_materias_db"
+            )
+
+            st.markdown("---")
+            if st.button("💾 Guardar Cambios en la Base de Datos", type="primary"):
+                try:
+                    controller.actualizar_horarios_desde_editor(df_modificado)
+                    st.success("✅ ¡Base de datos actualizada con éxito!")
+                    st.rerun()
+                except Exception as err:
+                    st.error(f"Error al guardar los cambios: {err}")
+
+# -----------------------------------------------------------------------------
+# TAB 4 & 5: CARGA Y EVENTOS (ADMIN)
 # -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_cargue:
     with tab_cargue:
