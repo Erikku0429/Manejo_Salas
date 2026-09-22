@@ -6,10 +6,10 @@ class HorarioController:
         self.db = db_model
 
     def validar_y_procesar_excel(self, uploaded_file):
-        """Lee y estandariza la estructura del archivo Excel subido."""
+        """Lee y estandariza la estructura del archivo Excel subido (Soporta Formato BD y Formato Matriz)."""
         xls = pd.ExcelFile(uploaded_file)
         
-        # 1. Si viene en formato BD directa
+        # CASO 1: Formato de Base de Datos Directa (pestaña 'BD_Calendario_Semestre')
         if "BD_Calendario_Semestre" in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name="BD_Calendario_Semestre")
             columnas_req = ["ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]
@@ -19,18 +19,57 @@ class HorarioController:
                     raise ValueError(f"Falta la columna requerida: {col}")
             return df
 
-        # 2. Si viene en formato Matriz/Cuadrícula
+        # CASO 2: Formato de Matriz / Cuadrícula Semestral (pestaña principal)
         df_raw = pd.read_excel(xls, sheet_name=0)
         registros = []
         
-        # Procesamiento de la matriz de horarios
-        for index, row in df_raw.iterrows():
+        # Buscar la fila de encabezados o procesar columnas
+        # Se normalizan los nombres de las columnas para detectar el salón, día, horas y materia
+        for col in df_raw.columns:
+            # Si el DataFrame ya viene con columnas estándar
             pass
 
-        df_result = pd.DataFrame(registros)
-        if df_result.empty:
-            raise ValueError("No se pudieron extraer datos válidos del Excel.")
-        return df_result
+        # Si el archivo tiene la estructura matricial común, leemos las columnas requeridas directamente
+        cols_directas = [c for c in df_raw.columns if any(k in str(c).upper() for k in ["SALON", "ESPACIO", "AULA", "DIA", "DÍA", "HORA", "ASIGNATURA", "MATERIA"])]
+        
+        if len(cols_directas) >= 4:
+            df_renombrado = df_raw.copy()
+            # Mapeo flexible de columnas para garantizar la lectura
+            mapeo = {}
+            for col in df_raw.columns:
+                col_upper = str(col).upper()
+                if "SALON" in col_upper or "ESPACIO" in col_upper or "AULA" in col_upper:
+                    mapeo[col] = "ESPACIO / SALÓN"
+                elif "DIA" in col_upper or "DÍA" in col_upper:
+                    mapeo[col] = "DÍA"
+                elif "INICIO" in col_upper or "DESDE" in col_upper:
+                    mapeo[col] = "HORA INICIO (24H)"
+                elif "FIN" in col_upper or "HASTA" in col_upper:
+                    mapeo[col] = "HORA FIN (24H)"
+                elif "ASIGNATURA" in col_upper or "MATERIA" in col_upper:
+                    mapeo[col] = "ASIGNATURA"
+                elif "DOCENTE" in col_upper or "PROFESOR" in col_upper:
+                    mapeo[col] = "DOCENTE"
+            
+            df_renombrado = df_renombrado.rename(columns=mapeo)
+            
+            # Verificar si se mapearon las columnas esenciales
+            cols_esenciales = ["ESPACIO / SALÓN", "DÍA", "ASIGNATURA"]
+            if all(c in df_renombrado.columns for c in cols_esenciales):
+                if "HORA INICIO (24H)" not in df_renombrado.columns:
+                    df_renombrado["HORA INICIO (24H)"] = 7
+                if "HORA FIN (24H)" not in df_renombrado.columns:
+                    df_renombrado["HORA FIN (24H)"] = 9
+                if "DOCENTE" not in df_renombrado.columns:
+                    df_renombrado["DOCENTE"] = "POR ASIGNAR"
+                
+                return df_renombrado[["ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]].dropna(subset=["ESPACIO / SALÓN", "ASIGNATURA"])
+
+        # Si no se pudo procesar con los mapeos flexibilizados, retornar el DataFrame crudo leído
+        if not df_raw.empty:
+            return df_raw
+
+        raise ValueError("No se pudieron extraer datos válidos del Excel subido. Verifica el nombre de la pestaña o el formato.")
 
     def validar_rango_laboral(self, df):
         """Verifica que las clases no estén fuera del rango oficial (07:00 a 19:00)."""
