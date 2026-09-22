@@ -6,70 +6,56 @@ class HorarioController:
         self.db = db_model
 
     def validar_y_procesar_excel(self, uploaded_file):
-        """Lee y estandariza la estructura del archivo Excel subido (Soporta Formato BD y Formato Matriz)."""
+        """Lee y estandariza la estructura del archivo Excel subido asegurando nombres de columnas requeridos."""
         xls = pd.ExcelFile(uploaded_file)
-        
+        df_procesado = None
+
         # CASO 1: Formato de Base de Datos Directa (pestaña 'BD_Calendario_Semestre')
         if "BD_Calendario_Semestre" in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name="BD_Calendario_Semestre")
-            columnas_req = ["ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]
-            
-            for col in columnas_req:
-                if col not in df.columns:
-                    raise ValueError(f"Falta la columna requerida: {col}")
-            return df
+            df_procesado = pd.read_excel(xls, sheet_name="BD_Calendario_Semestre")
+        else:
+            # CASO 2: Leer la primera pestaña disponible
+            df_procesado = pd.read_excel(xls, sheet_name=0)
 
-        # CASO 2: Formato de Matriz / Cuadrícula Semestral (pestaña principal)
-        df_raw = pd.read_excel(xls, sheet_name=0)
-        registros = []
+        if df_procesado is None or df_procesado.empty:
+            raise ValueError("El archivo Excel se encuentra vacío.")
+
+        # Normalización flexible de nombres de columnas
+        mapeo = {}
+        for col in df_procesado.columns:
+            col_str = str(col).upper().strip()
+            if any(k in col_str for k in ["ESPACIO", "SALON", "SALÓN", "AULA"]):
+                mapeo[col] = "ESPACIO / SALÓN"
+            elif any(k in col_str for k in ["DIA", "DÍA"]):
+                mapeo[col] = "DÍA"
+            elif "INICIO" in col_str or "DESDE" in col_str:
+                mapeo[col] = "HORA INICIO (24H)"
+            elif "FIN" in col_str or "HASTA" in col_str:
+                mapeo[col] = "HORA FIN (24H)"
+            elif any(k in col_str for k in ["ASIGNATURA", "MATERIA"]):
+                mapeo[col] = "ASIGNATURA"
+            elif any(k in col_str for k in ["DOCENTE", "PROFESOR"]):
+                mapeo[col] = "DOCENTE"
+
+        df_res = df_procesado.rename(columns=mapeo)
+
+        # Garantizar que existan las 6 columnas requeridas por app.py
+        cols_obligatorias = ["ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]
         
-        # Buscar la fila de encabezados o procesar columnas
-        # Se normalizan los nombres de las columnas para detectar el salón, día, horas y materia
-        for col in df_raw.columns:
-            # Si el DataFrame ya viene con columnas estándar
-            pass
+        for col in cols_obligatorias:
+            if col not in df_res.columns:
+                if col == "HORA INICIO (24H)":
+                    df_res[col] = 7
+                elif col == "HORA FIN (24H)":
+                    df_res[col] = 9
+                elif col == "DOCENTE":
+                    df_res[col] = "POR ASIGNAR"
+                else:
+                    raise ValueError(f"No se encontró la columna '{col}' ni un equivalente en el archivo Excel.")
 
-        # Si el archivo tiene la estructura matricial común, leemos las columnas requeridas directamente
-        cols_directas = [c for c in df_raw.columns if any(k in str(c).upper() for k in ["SALON", "ESPACIO", "AULA", "DIA", "DÍA", "HORA", "ASIGNATURA", "MATERIA"])]
-        
-        if len(cols_directas) >= 4:
-            df_renombrado = df_raw.copy()
-            # Mapeo flexible de columnas para garantizar la lectura
-            mapeo = {}
-            for col in df_raw.columns:
-                col_upper = str(col).upper()
-                if "SALON" in col_upper or "ESPACIO" in col_upper or "AULA" in col_upper:
-                    mapeo[col] = "ESPACIO / SALÓN"
-                elif "DIA" in col_upper or "DÍA" in col_upper:
-                    mapeo[col] = "DÍA"
-                elif "INICIO" in col_upper or "DESDE" in col_upper:
-                    mapeo[col] = "HORA INICIO (24H)"
-                elif "FIN" in col_upper or "HASTA" in col_upper:
-                    mapeo[col] = "HORA FIN (24H)"
-                elif "ASIGNATURA" in col_upper or "MATERIA" in col_upper:
-                    mapeo[col] = "ASIGNATURA"
-                elif "DOCENTE" in col_upper or "PROFESOR" in col_upper:
-                    mapeo[col] = "DOCENTE"
-            
-            df_renombrado = df_renombrado.rename(columns=mapeo)
-            
-            # Verificar si se mapearon las columnas esenciales
-            cols_esenciales = ["ESPACIO / SALÓN", "DÍA", "ASIGNATURA"]
-            if all(c in df_renombrado.columns for c in cols_esenciales):
-                if "HORA INICIO (24H)" not in df_renombrado.columns:
-                    df_renombrado["HORA INICIO (24H)"] = 7
-                if "HORA FIN (24H)" not in df_renombrado.columns:
-                    df_renombrado["HORA FIN (24H)"] = 9
-                if "DOCENTE" not in df_renombrado.columns:
-                    df_renombrado["DOCENTE"] = "POR ASIGNAR"
-                
-                return df_renombrado[["ESPACIO / SALÓN", "DÍA", "HORA INICIO (24H)", "HORA FIN (24H)", "ASIGNATURA", "DOCENTE"]].dropna(subset=["ESPACIO / SALÓN", "ASIGNATURA"])
-
-        # Si no se pudo procesar con los mapeos flexibilizados, retornar el DataFrame crudo leído
-        if not df_raw.empty:
-            return df_raw
-
-        raise ValueError("No se pudieron extraer datos válidos del Excel subido. Verifica el nombre de la pestaña o el formato.")
+        # Limpiar y retornar solo las columnas requeridas
+        df_res = df_res[cols_obligatorias].dropna(subset=["ESPACIO / SALÓN", "ASIGNATURA"])
+        return df_res
 
     def validar_rango_laboral(self, df):
         """Verifica que las clases no estén fuera del rango oficial (07:00 a 19:00)."""
