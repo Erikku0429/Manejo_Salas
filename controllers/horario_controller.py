@@ -64,7 +64,6 @@ class HorarioController:
         # ---------------------------------------------------------------------
         df_grid = pd.read_excel(xls, sheet_name=0, header=None)
         registros = []
-        current_salon = "AULA GENERAL"
         
         i = 0
         num_rows = len(df_grid)
@@ -77,12 +76,14 @@ class HorarioController:
             is_hora_row = any("HORA" == s.upper() for s in row_strs)
             
             if is_hora_row:
-                # Detección dinámica del aula: tomar el texto de la fila inmediatamente superior (i - 1)
-                if i > 0:
-                    prev_vals = df_grid.iloc[i-1].values
-                    prev_strs = [str(v).strip() for v in prev_vals if pd.notna(v) and str(v).strip() != '']
-                    if prev_strs:
-                        current_salon = " ".join(prev_strs).strip()
+                # Búsqueda hacia atrás para obtener el nombre exacto de la sala justo encima de HORA
+                current_salon = "AULA GENERAL"
+                for back in range(i - 1, -1, -1):
+                    p_vals = df_grid.iloc[back].values
+                    p_strs = [str(v).strip() for v in p_vals if pd.notna(v) and str(v).strip() != '']
+                    if p_strs:
+                        current_salon = " ".join(p_strs).strip()
+                        break
                 
                 # Mapeo de columnas a Días de la semana
                 col_to_day = {}
@@ -97,7 +98,7 @@ class HorarioController:
                 i += 1
                 hour_entries = []
                 
-                # Lectura de las filas pertenecientes a la franja horaria
+                # Lectura de filas que contienen las horas y materias del bloque
                 while i < num_rows:
                     r_vals = df_grid.iloc[i].values
                     h_val = r_vals[0]
@@ -121,7 +122,7 @@ class HorarioController:
                 all_hours = [h for h, _ in hour_entries]
                 max_h = max(all_hours) + 1 if all_hours else 20
                 
-                # Procesar clases por cada día para el aula actual
+                # Procesar clases por día para el aula detectada
                 for day_name in set(col_to_day.values()):
                     classes_in_day = []
                     for idx_h, (h_int, day_cells) in enumerate(hour_entries):
