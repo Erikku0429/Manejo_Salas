@@ -77,6 +77,14 @@ class HorarioController:
             is_hora_row = any("HORA" == s.upper() for s in row_strs)
             
             if is_hora_row:
+                # Detección dinámica del aula: tomar el texto de la fila inmediatamente superior (i - 1)
+                if i > 0:
+                    prev_vals = df_grid.iloc[i-1].values
+                    prev_strs = [str(v).strip() for v in prev_vals if pd.notna(v) and str(v).strip() != '']
+                    if prev_strs:
+                        current_salon = " ".join(prev_strs).strip()
+                
+                # Mapeo de columnas a Días de la semana
                 col_to_day = {}
                 for col_idx, val in enumerate(row_vals):
                     val_upper = str(val).strip().upper() if pd.notna(val) else ""
@@ -89,6 +97,7 @@ class HorarioController:
                 i += 1
                 hour_entries = []
                 
+                # Lectura de las filas pertenecientes a la franja horaria
                 while i < num_rows:
                     r_vals = df_grid.iloc[i].values
                     h_val = r_vals[0]
@@ -112,6 +121,7 @@ class HorarioController:
                 all_hours = [h for h, _ in hour_entries]
                 max_h = max(all_hours) + 1 if all_hours else 20
                 
+                # Procesar clases por cada día para el aula actual
                 for day_name in set(col_to_day.values()):
                     classes_in_day = []
                     for idx_h, (h_int, day_cells) in enumerate(hour_entries):
@@ -139,11 +149,6 @@ class HorarioController:
                             "DOCENTE": doc
                         })
                 continue
-            else:
-                if len(row_strs) > 0:
-                    first_str = row_strs[0]
-                    if any(k in first_str.upper() for k in ["C00", "E10", "E20", "LAB", "SALA", "TALLER", "AULA", "B219", "C001"]) or i == 0:
-                        current_salon = first_str.strip()
             i += 1
             
         df_res = pd.DataFrame(registros)
