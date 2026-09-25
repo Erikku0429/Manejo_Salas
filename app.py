@@ -19,6 +19,10 @@ st.set_page_config(
 )
 
 db = DatabaseModel()
+# Crear tabla de novedades si aún no existe
+if hasattr(db, "crear_tabla_novedades"):
+    db.crear_tabla_novedades()
+
 controller = HorarioController(db)
 
 # -----------------------------------------------------------------------------
@@ -174,6 +178,12 @@ st.markdown(
         color: #fef3c7 !important;
     }
 
+    .card-cell-novedad {
+        background: linear-gradient(135deg, #78350f 0%, #451a03 100%) !important;
+        border-left: 4px solid #fbbf24 !important;
+        color: #fef3c7 !important;
+    }
+
     .card-cell-free {
         background: rgba(16, 185, 129, 0.06);
         color: #10b981;
@@ -302,6 +312,7 @@ if st.session_state.authenticated:
     lista_tabs = [
         "📅 Consulta de Horarios (Público / QR)",
         "📢 Próximos Eventos",
+        "⚠️ Registrar Novedad / Inasistencia (Admin)",
         "✏️ Edición Rápida de Materias (Admin)",
         "📋 Confirmación de Carga Semestral (Admin)",
         "➕ Eventos y Cambios (Admin)",
@@ -315,16 +326,18 @@ if "active_tab" not in st.session_state or st.session_state["active_tab"] not in
 tabs = st.tabs(lista_tabs)
 
 if st.session_state.authenticated:
-    tab_horarios, tab_eventos_pub, tab_edicion, tab_cargue, tab_eventos_adm = tabs[0], tabs[1], tabs[2], tabs[3], tabs[4]
+    tab_horarios, tab_eventos_pub, tab_novedades_adm, tab_edicion, tab_cargue, tab_eventos_adm = (
+        tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5]
+    )
 else:
     tab_horarios, tab_eventos_pub = tabs[0], tabs[1]
-    tab_edicion, tab_cargue, tab_eventos_adm = None, None, None
+    tab_novedades_adm, tab_edicion, tab_cargue, tab_eventos_adm = None, None, None, None
 
 # -----------------------------------------------------------------------------
 # RENDERIZADOR MATRICIAL CON HORAS EN FORMATO 12 HORAS (AM/PM) A LA IZQUIERDA
 # -----------------------------------------------------------------------------
 def renderizar_matriz_vertical_con_horas_izq(
-    df_datos, columnas, es_vista_dias=False, dia_hoy_nombre=None, rango_horas=(7, 19), solo_clases_ocupadas=False
+    df_datos, columnas, es_vista_dias=False, dia_hoy_nombre=None, rango_horas=(7, 19), solo_clases_ocupadas=False, df_novedades=None
 ):
     h_min, h_max = rango_horas
     
@@ -384,6 +397,24 @@ def renderizar_matriz_vertical_con_horas_izq(
                 h_ini = max(int(c["hora_inicio"]), h_min)
                 h_fin = min(int(c["hora_fin"]), h_max)
                 
+                # VERIFICAR SI HAY NOVEDAD / CANCELACIÓN
+                es_novedad = False
+                texto_novedad = ""
+                
+                if df_novedades is not None and not df_novedades.empty:
+                    c_fecha = str(c.get("fecha", ""))
+                    c_espacio = str(c.get("espacio", ""))
+                    nov_match = df_novedades[
+                        (df_novedades["fecha"] == c_fecha) &
+                        (df_novedades["espacio"].apply(normalizar_texto) == normalizar_texto(c_espacio)) &
+                        (df_novedades["hora_inicio"] <= h) &
+                        (df_novedades["hora_fin"] > h)
+                    ]
+                    if not nov_match.empty:
+                        es_novedad = True
+                        n_info = nov_match.iloc[0]
+                        texto_novedad = f"⚠️ {str(n_info['tipo_novedad']).upper()}: {str(n_info.get('observacion', '')).upper()}"
+
                 if solo_clases_ocupadas:
                     rowspan = sum(1 for hh in franjas if h_ini <= hh < h_fin)
                 else:
@@ -398,16 +429,19 @@ def renderizar_matriz_vertical_con_horas_izq(
                 doc = str(c["docente"]).upper()
                 tipo_ev = str(c.get("tipo_evento", "")).lower()
 
-                if tipo_ev == "evento":
+                if es_novedad:
+                    cell_class = "card-cell-occupied card-cell-novedad"
+                    html += f"<td rowspan='{rowspan}' class='{cell_class}' title='{texto_novedad}'>"
+                    html += f"<div>{asig}</div><span class='doc-txt'>{texto_novedad}</span></td>"
+                elif tipo_ev == "evento":
                     cell_class = "card-cell-occupied card-cell-evento"
-                    style = ""
+                    html += f"<td rowspan='{rowspan}' class='{cell_class}' title='{asig} ({doc})'>"
+                    html += f"<div>{asig}</div><span class='doc-txt'>👨‍🏫 {doc}</span></td>"
                 else:
                     cell_class = "card-cell-occupied"
                     style = generar_estilo_materia_inline(asig)
-
-                html += f"<td rowspan='{rowspan}' class='{cell_class}' style='{style}' title='{asig} ({doc})'>"
-                html += f"<div>{asig}</div><span class='doc-txt'>👨‍🏫 {doc}</span>"
-                html += "</td>"
+                    html += f"<td rowspan='{rowspan}' class='{cell_class}' style='{style}' title='{asig} ({doc})'>"
+                    html += f"<div>{asig}</div><span class='doc-txt'>👨‍🏫 {doc}</span></td>"
             else:
                 if solo_clases_ocupadas:
                     html += "<td style='background: transparent; border: none;'></td>"
@@ -432,6 +466,7 @@ with tab_horarios:
                 mostrar_popup_vaciar_db()
 
     df_horarios = db.obtener_todos_los_horarios()
+    df_novedades = db.obtener_todas_las_novedades() if hasattr(db, "obtener_todas_las_novedades") else pd.DataFrame()
 
     if df_horarios.empty:
         st.info("La base de datos se encuentra vacía. Un administrador debe realizar el cargue del semestre.")
@@ -535,7 +570,8 @@ with tab_horarios:
                         aulas_con_clase,
                         es_vista_dias=False,
                         rango_horas=rango_horas,
-                        solo_clases_ocupadas=True
+                        solo_clases_ocupadas=True,
+                        df_novedades=df_novedades
                     )
             else:
                 st.markdown(f"##### 📍 **Vista General de Aulas del Día:** {dia_seleccionado} ({fecha_consulta_str})")
@@ -545,7 +581,8 @@ with tab_horarios:
                     salones_unicos,
                     es_vista_dias=False,
                     rango_horas=rango_horas,
-                    solo_clases_ocupadas=False
+                    solo_clases_ocupadas=False,
+                    df_novedades=df_novedades
                 )
         else:
             # VISTA DE UN SALÓN ESPECÍFICO CON GENERADOR DINÁMICO DE CÓDIGO QR
@@ -572,11 +609,9 @@ with tab_horarios:
             
             with col_qr:
                 with st.popover("📱 Código QR de este Salón"):
-                    # Se remueven barras sobrantes al final de APP_URL
                     raw_app_url = str(st.secrets.get("APP_URL", "https://horariosdte.streamlit.app")).strip()
                     url_base_app = raw_app_url.rstrip("/")
                     
-                    # Codificación web limpia para evitar errores en móviles
                     salon_encoded = urllib.parse.quote(salon_sel)
                     full_qr_url = f"{url_base_app}/?salon={salon_encoded}"
                     
@@ -584,7 +619,7 @@ with tab_horarios:
                     
                     st.markdown(f"**Escanea para abrir directo en:**<br>`{salon_sel}`", unsafe_allow_html=True)
                     st.image(qr_img_src, width=200)
-                    
+                    st.caption("📱 *Imprime este código y pégalo en la puerta de la sala.*")
 
             if (hay_filtro_asig or hay_filtro_doc):
                 if df_filtered.empty:
@@ -610,7 +645,8 @@ with tab_horarios:
                         es_vista_dias=True,
                         dia_hoy_nombre=dia_nombre_hoy,
                         rango_horas=rango_horas,
-                        solo_clases_ocupadas=True
+                        solo_clases_ocupadas=True,
+                        df_novedades=df_novedades
                     )
             else:
                 renderizar_matriz_vertical_con_horas_izq(
@@ -619,7 +655,8 @@ with tab_horarios:
                     es_vista_dias=True,
                     dia_hoy_nombre=dia_nombre_hoy,
                     rango_horas=rango_horas,
-                    solo_clases_ocupadas=False
+                    solo_clases_ocupadas=False,
+                    df_novedades=df_novedades
                 )
 
 # -----------------------------------------------------------------------------
@@ -689,7 +726,67 @@ with tab_eventos_pub:
                         st.markdown(card_agenda_html, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# TAB 3: EDICIÓN RÁPIDA DE MATERIAS (SIN ID Y EN FORMATO 12 HORAS)
+# TAB NOVEDADES: GESTIÓN DE INASISTENCIAS Y NOVEDADES (ADMIN)
+# -----------------------------------------------------------------------------
+if st.session_state.authenticated and tab_novedades_adm:
+    with tab_novedades_adm:
+        st.subheader("⚠️ Registrar Novedad o Inasistencia Docente")
+        st.caption("Permite marcar clases canceladas o inasistencias en fechas puntuales sin borrar el horario base del semestre.")
+
+        df_db_horarios = db.obtener_todos_los_horarios()
+
+        if df_db_horarios.empty:
+            st.info("No hay horarios registrados en el sistema.")
+        else:
+            salones_nov = sorted([str(s).upper() for s in df_db_horarios["espacio"].unique() if pd.notna(s)])
+
+            c_n1, c_n2 = st.columns(2)
+            nov_salon = c_n1.selectbox("1️⃣ Salón / Aula afectada:", options=salones_nov)
+            nov_fecha = c_n2.date_input("2️⃣ Fecha de la Novedad:", value=datetime.date.today())
+
+            fecha_nov_str = nov_fecha.strftime("%Y-%m-%d")
+
+            col_nh1, col_nh2 = st.columns(2)
+            nov_h_ini_lbl = col_nh1.selectbox("3️⃣ Hora Inicio Novedad:", options=OPCIONES_HORAS_12H[:-1], index=0)
+            nov_h_fin_lbl = col_nh2.selectbox("4️⃣ Hora Fin Novedad:", options=OPCIONES_HORAS_12H[1:], index=1)
+
+            nov_h_ini = parsear_12h_a_24h(nov_h_ini_lbl)
+            nov_h_fin = parsear_12h_a_24h(nov_h_fin_lbl)
+
+            tipo_nov = st.selectbox("5️⃣ Tipo de Novedad:", ["CLASE CANCELADA", "INASISTENCIA DOCENTE", "CAMBIO DE AULA", "OTRA NOVEDAD"])
+            obs_nov = st.text_area("6️⃣ Detalle / Observación:", placeholder="Ej. El docente presentó incapacidad médica.")
+
+            if st.button("🚨 Registrar Novedad", type="primary"):
+                if nov_h_fin <= nov_h_ini:
+                    st.error("La hora de fin debe ser posterior a la hora de inicio.")
+                else:
+                    db.agregar_novedad(nov_salon, fecha_nov_str, nov_h_ini, nov_h_fin, tipo_nov, obs_nov)
+                    st.success("✅ Novedad registrada correctamente.")
+                    st.rerun()
+
+            st.markdown("---")
+            st.markdown("##### 📋 Historial de Novedades Registradas")
+            df_historial_nov = db.obtener_todas_las_novedades() if hasattr(db, "obtener_todas_las_novedades") else pd.DataFrame()
+
+            if df_historial_nov.empty:
+                st.caption("No hay novedades registradas actualmente.")
+            else:
+                for _, row_n in df_historial_nov.iterrows():
+                    nov_id = row_n["id"]
+                    col_n1, col_n2 = st.columns([4, 1])
+                    with col_n1:
+                        st.warning(
+                            f"**{row_n['tipo_novedad']}** | Aula: **{row_n['espacio']}** | "
+                            f"Fecha: **{row_n['fecha']}** ({formatear_12h(row_n['hora_inicio'])} - {formatear_12h(row_n['hora_fin'])})\n\n"
+                            f"*Detalle:* {row_n.get('observacion', 'Sin observación')}"
+                        )
+                    with col_n2:
+                        if st.button("🗑️ Eliminar", key=f"btn_del_nov_{nov_id}"):
+                            db.eliminar_novedad(nov_id)
+                            st.rerun()
+
+# -----------------------------------------------------------------------------
+# TAB 3: EDICIÓN RÁPIDA DE MATERIAS
 # -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_edicion:
     with tab_edicion:

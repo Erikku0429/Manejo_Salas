@@ -199,6 +199,22 @@ class DatabaseModel:
             """
         )
 
+        # Tabla de novedades e inasistencias
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS novedades (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                espacio TEXT NOT NULL,
+                fecha TEXT NOT NULL,
+                hora_inicio INTEGER NOT NULL,
+                hora_fin INTEGER NOT NULL,
+                tipo_novedad TEXT NOT NULL,
+                observacion TEXT,
+                fecha_registro TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
         conn.commit()
         conn.close()
 
@@ -246,6 +262,7 @@ class DatabaseModel:
         cursor = conn.cursor()
         cursor.execute("DELETE FROM horarios")
         cursor.execute("DELETE FROM vigencia_semestre")
+        cursor.execute("DELETE FROM novedades")
         conn.commit()
         conn.close()
 
@@ -403,5 +420,52 @@ class DatabaseModel:
             """
             cursor.executemany(sql_insert, datos)
 
+        conn.commit()
+        conn.close()
+
+    # -------------------------------------------------------------------------
+    # MÉTODOS DE NOVEDADES
+    # -------------------------------------------------------------------------
+    def agregar_novedad(self, espacio, fecha, hora_inicio, hora_fin, tipo_novedad, observacion=""):
+        """Registra una novedad puntual (cancelación, inasistencia, etc.) para una fecha específica."""
+        conn = self._obtener_conexion()
+        cursor = conn.cursor()
+        query = """
+        INSERT INTO novedades (espacio, fecha, hora_inicio, hora_fin, tipo_novedad, observacion)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """
+        cursor.execute(query, (espacio.upper(), fecha, hora_inicio, hora_fin, tipo_novedad, observacion))
+        conn.commit()
+        conn.close()
+
+    def obtener_novedades_fecha(self, fecha):
+        """Obtiene todas las novedades registradas para una fecha específica."""
+        conn = self._obtener_conexion()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM novedades WHERE fecha = ?", (fecha,))
+        rows = cursor.fetchall()
+        columnas = [description[0] for description in cursor.description]
+        conn.close()
+        if not rows:
+            return pd.DataFrame(columns=columnas)
+        return pd.DataFrame(rows, columns=columnas)
+
+    def obtener_todas_las_novedades(self):
+        """Obtiene el historial completo de novedades registradas."""
+        conn = self._obtener_conexion()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM novedades ORDER BY fecha DESC, hora_inicio ASC")
+        rows = cursor.fetchall()
+        columnas = [description[0] for description in cursor.description]
+        conn.close()
+        if not rows:
+            return pd.DataFrame(columns=columnas)
+        return pd.DataFrame(rows, columns=columnas)
+
+    def eliminar_novedad(self, novedad_id):
+        """Elimina/revierte una novedad previamente registrada."""
+        conn = self._obtener_conexion()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM novedades WHERE id = ?", (novedad_id,))
         conn.commit()
         conn.close()
