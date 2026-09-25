@@ -584,7 +584,7 @@ with tab_horarios:
                     
                     st.markdown(f"**Escanea para abrir directo en:**<br>`{salon_sel}`", unsafe_allow_html=True)
                     st.image(qr_img_src, width=200)
-                    st.caption("📱 *Imprime este código y pégalo en la puerta de la sala.*")
+                    
 
             if (hay_filtro_asig or hay_filtro_doc):
                 if df_filtered.empty:
