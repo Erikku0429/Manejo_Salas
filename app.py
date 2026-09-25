@@ -2,6 +2,7 @@ import datetime
 import hashlib
 import unicodedata
 import os
+import urllib.parse
 import pandas as pd
 import streamlit as st
 from controllers.horario_controller import HorarioController
@@ -62,6 +63,8 @@ def resetear_filtros_callback():
     st.session_state["input_doc"] = ""
     st.session_state["input_salon"] = "TODOS"
     st.session_state["input_horas"] = (7, 19)
+    if "salon" in st.query_params:
+        del st.query_params["salon"]
 
 def ir_a_pestaña(nombre_tab):
     st.session_state["active_tab"] = nombre_tab
@@ -76,6 +79,11 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
             return False
         return True
     return False
+
+def generar_url_qr(texto_url, tamano=300):
+    """Genera una URL directa de imagen QR usando la API nativa de QuickChart."""
+    url_encode = urllib.parse.quote(texto_url)
+    return f"https://quickchart.io/qr?text={url_encode}&size={tamano}&margin=2"
 
 # -----------------------------------------------------------------------------
 # ESTILOS CSS
@@ -320,7 +328,6 @@ def renderizar_matriz_vertical_con_horas_izq(
 ):
     h_min, h_max = rango_horas
     
-    # Si solo se solicitan clases ocupadas, filtramos las franjas horarias a solo aquellas donde hay clase
     if solo_clases_ocupadas and not df_datos.empty:
         franjas_activas = set()
         for _, r in df_datos.iterrows():
@@ -377,7 +384,6 @@ def renderizar_matriz_vertical_con_horas_izq(
                 h_ini = max(int(c["hora_inicio"]), h_min)
                 h_fin = min(int(c["hora_fin"]), h_max)
                 
-                # Calcular la duración dentro de las franjas activas
                 if solo_clases_ocupadas:
                     rowspan = sum(1 for hh in franjas if h_ini <= hh < h_fin)
                 else:
@@ -432,12 +438,21 @@ with tab_horarios:
     else:
         salones_unicos = sorted([str(s).upper() for s in df_horarios["espacio"].unique() if pd.notna(s) and str(s).strip()])
 
+        # DETECTAR SI LA URL TRAE UN PARÁMETRO DE SALÓN DESDE CÓDIGO QR
+        params = st.query_params
+        salon_param = params.get("salon", None)
+        
+        default_salon = "TODOS"
+        if salon_param and salon_param.upper() in salones_unicos:
+            default_salon = salon_param.upper()
+
+        # INICIALIZACIÓN LIMPIA DE VARIABLES DE SESIÓN (SIN CONFLICITAR CON WIDGETS)
         if "input_asig" not in st.session_state:
             st.session_state["input_asig"] = ""
         if "input_doc" not in st.session_state:
             st.session_state["input_doc"] = ""
-        if "input_salon" not in st.session_state:
-            st.session_state["input_salon"] = "TODOS"
+        if "input_salon" not in st.session_state or st.session_state["input_salon"] not in (["TODOS"] + salones_unicos):
+            st.session_state["input_salon"] = default_salon
         if "input_horas" not in st.session_state:
             st.session_state["input_horas"] = (7, 19)
 
@@ -453,11 +468,11 @@ with tab_horarios:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
             st.button("🧹 Limpiar Filtros", on_click=resetear_filtros_callback, use_container_width=True)
 
+        # SLIDER SIN PARÁMETRO 'VALUE' PARA EVITAR ADVERTENCIA EN CONSOLA
         rango_horas = st.slider(
             "⏰ **Filtrar Franja Horaria:**",
             min_value=7,
             max_value=19,
-            value=st.session_state["input_horas"],
             format="%d:00 hrs",
             key="input_horas",
         )
@@ -492,9 +507,6 @@ with tab_horarios:
             if hay_filtro_doc:
                 df_filtered = df_filtered[df_filtered["docente"].apply(normalizar_texto).str.contains(q_doc, regex=False)]
 
-            # -----------------------------------------------------------------
-            # MATRIZ CON HORAS A LA IZQUIERDA Y SIN ESPACIOS LIBRES AL FILTRAR
-            # -----------------------------------------------------------------
             if hay_filtro_asig or hay_filtro_doc:
                 criterios = []
                 if hay_filtro_asig:
@@ -534,9 +546,7 @@ with tab_horarios:
                     solo_clases_ocupadas=False
                 )
         else:
-            # -----------------------------------------------------------------
-            # VISTA DE UN SALÓN ESPECÍFICO (FILTRADO DINÁMICO DE DÍAS)
-            # -----------------------------------------------------------------
+            # VISTA DE UN SALÓN ESPECÍFICO CON BOTÓN DE GENERACIÓN DE QR
             sabado_semana = lunes_semana + datetime.timedelta(days=5)
             df_filtered = df_horarios.copy()
             df_filtered["fecha_dt"] = pd.to_datetime(df_filtered["fecha"]).dt.date
@@ -554,7 +564,19 @@ with tab_horarios:
             if hay_filtro_doc:
                 df_filtered = df_filtered[df_filtered["docente"].apply(normalizar_texto).str.contains(q_doc, regex=False)]
 
-            st.markdown(f"##### 🏛️ **Horario Semanal del Salón:** {salon_sel}")
+            col_title, col_qr = st.columns([3, 1])
+            with col_title:
+                st.markdown(f"##### 🏛️ **Horario Semanal del Salón:** {salon_sel}")
+            
+            with col_qr:
+                with st.popover("📱 Código QR de este Salón"):
+                    base_url = st.query_params.get("origin", "https://manejo-salas.streamlit.app")
+                    full_qr_url = f"{base_url}/?salon={urllib.parse.quote(salon_sel)}"
+                    qr_img_src = generar_url_qr(full_qr_url, tamano=250)
+                    
+                    st.markdown(f"**Escanea para abrir directo en:**<br>`{salon_sel}`", unsafe_allow_html=True)
+                    st.image(qr_img_src, width=200)
+                    st.caption("📱 *Imprime este código y pégalo en la puerta de la sala.*")
 
             if (hay_filtro_asig or hay_filtro_doc):
                 if df_filtered.empty:
@@ -566,7 +588,6 @@ with tab_horarios:
                     criterio_txt = " y ".join(criterios)
                     st.info(f"ℹ️ El salón **{salon_sel}** no tiene clases registradas para {criterio_txt} durante esta semana.")
                 else:
-                    # Obtener únicamente los días que tienen clase para la búsqueda
                     dias_con_clase = []
                     for d_nom in DIAS_NOMBRES:
                         tiene_clase = not df_filtered[
