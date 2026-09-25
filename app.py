@@ -446,7 +446,6 @@ with tab_horarios:
         if salon_param and salon_param.upper() in salones_unicos:
             default_salon = salon_param.upper()
 
-        # INICIALIZACIÓN LIMPIA DE VARIABLES DE SESIÓN (SIN CONFLICITAR CON WIDGETS)
         if "input_asig" not in st.session_state:
             st.session_state["input_asig"] = ""
         if "input_doc" not in st.session_state:
@@ -468,7 +467,6 @@ with tab_horarios:
             st.markdown("<div style='height: 28px;'></div>", unsafe_allow_html=True)
             st.button("🧹 Limpiar Filtros", on_click=resetear_filtros_callback, use_container_width=True)
 
-        # SLIDER SIN PARÁMETRO 'VALUE' PARA EVITAR ADVERTENCIA EN CONSOLA
         rango_horas = st.slider(
             "⏰ **Filtrar Franja Horaria:**",
             min_value=7,
@@ -546,7 +544,7 @@ with tab_horarios:
                     solo_clases_ocupadas=False
                 )
         else:
-            # VISTA DE UN SALÓN ESPECÍFICO CON BOTÓN DE GENERACIÓN DE QR
+            # VISTA DE UN SALÓN ESPECÍFICO CON GENERADOR DINÁMICO DE CÓDIGO QR
             sabado_semana = lunes_semana + datetime.timedelta(days=5)
             df_filtered = df_horarios.copy()
             df_filtered["fecha_dt"] = pd.to_datetime(df_filtered["fecha"]).dt.date
@@ -570,8 +568,9 @@ with tab_horarios:
             
             with col_qr:
                 with st.popover("📱 Código QR de este Salón"):
-                    base_url = st.query_params.get("origin", "https://manejo-salas.streamlit.app")
-                    full_qr_url = f"{base_url}/?salon={urllib.parse.quote(salon_sel)}"
+                    # Lee la URL de producción configurada en los Secrets o usa la por defecto
+                    url_base_app = st.secrets.get("APP_URL", "https://manejo-salas.streamlit.app")
+                    full_qr_url = f"{url_base_app}/?salon={urllib.parse.quote(salon_sel)}"
                     qr_img_src = generar_url_qr(full_qr_url, tamano=250)
                     
                     st.markdown(f"**Escanea para abrir directo en:**<br>`{salon_sel}`", unsafe_allow_html=True)
