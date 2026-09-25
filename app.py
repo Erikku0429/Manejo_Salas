@@ -82,7 +82,7 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
 
 def generar_url_qr(texto_url, tamano=300):
     """Genera una URL directa de imagen QR usando la API nativa de QuickChart."""
-    url_encode = urllib.parse.quote_plus(texto_url)
+    url_encode = urllib.parse.quote(texto_url, safe="")
     return f"https://quickchart.io/qr?text={url_encode}&size={tamano}&margin=2"
 
 # -----------------------------------------------------------------------------
@@ -438,7 +438,7 @@ with tab_horarios:
     else:
         salones_unicos = sorted([str(s).upper() for s in df_horarios["espacio"].unique() if pd.notna(s) and str(s).strip()])
 
-        # DETECTAR SI LA URL TRAE UN PARÁMETRO DE SALÓN DESDE CÓDIGO QR (MATCH FLEXIBLE POR TEXTO)
+        # DETECTAR SI LA URL TRAE UN PARÁMETRO DE SALÓN DESDE CÓDIGO QR
         params = st.query_params
         salon_param = params.get("salon", None)
         
@@ -572,9 +572,14 @@ with tab_horarios:
             
             with col_qr:
                 with st.popover("📱 Código QR de este Salón"):
-                    # URL limpia con quote_plus
-                    url_base_app = st.secrets.get("APP_URL", "https://manejo-salas.streamlit.app")
-                    full_qr_url = f"{url_base_app}/?salon={urllib.parse.quote_plus(salon_sel)}"
+                    # Se remueven barras sobrantes al final de APP_URL
+                    raw_app_url = str(st.secrets.get("APP_URL", "https://horariosdte.streamlit.app")).strip()
+                    url_base_app = raw_app_url.rstrip("/")
+                    
+                    # Codificación web limpia para evitar errores en móviles
+                    salon_encoded = urllib.parse.quote(salon_sel)
+                    full_qr_url = f"{url_base_app}/?salon={salon_encoded}"
+                    
                     qr_img_src = generar_url_qr(full_qr_url, tamano=250)
                     
                     st.markdown(f"**Escanea para abrir directo en:**<br>`{salon_sel}`", unsafe_allow_html=True)
