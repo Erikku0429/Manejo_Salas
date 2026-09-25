@@ -47,10 +47,7 @@ def parsear_12h_a_24h(str_12h):
     if isinstance(str_12h, (int, float)):
         return int(str_12h)
     
-    # Limpiar posibles caracteres extra o formateos residuales
-
     str_clean = str(str_12h).replace("%00", ":00").strip()
-    # Si viene con minutos (ej: "11:00 AM")
     if ":" in str_clean:
         dt = datetime.datetime.strptime(str_clean, "%I:%M %p")
     else:
@@ -81,7 +78,7 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
     return False
 
 # -----------------------------------------------------------------------------
-# ESTILOS CSS CON EJE VERTICAL DE HORAS
+# ESTILOS CSS
 # -----------------------------------------------------------------------------
 st.markdown(
     """
@@ -318,9 +315,26 @@ else:
 # -----------------------------------------------------------------------------
 # RENDERIZADOR MATRICIAL CON HORAS EN FORMATO 12 HORAS (AM/PM) A LA IZQUIERDA
 # -----------------------------------------------------------------------------
-def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=False, dia_hoy_nombre=None, rango_horas=(7, 19)):
+def renderizar_matriz_vertical_con_horas_izq(
+    df_datos, columnas, es_vista_dias=False, dia_hoy_nombre=None, rango_horas=(7, 19), solo_clases_ocupadas=False
+):
     h_min, h_max = rango_horas
-    franjas = list(range(h_min, h_max))
+    
+    # Si solo se solicitan clases ocupadas, filtramos las franjas horarias a solo aquellas donde hay clase
+    if solo_clases_ocupadas and not df_datos.empty:
+        franjas_activas = set()
+        for _, r in df_datos.iterrows():
+            ini = max(int(r["hora_inicio"]), h_min)
+            fin = min(int(r["hora_fin"]), h_max)
+            for hh in range(ini, fin):
+                franjas_activas.add(hh)
+        franjas = sorted(list(franjas_activas))
+    else:
+        franjas = list(range(h_min, h_max))
+
+    if not franjas:
+        st.info("No se encontraron clases en el rango seleccionado.")
+        return
 
     skip_filas = {col: 0 for col in columnas}
 
@@ -362,7 +376,12 @@ def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=F
                 c = df_celda.iloc[0]
                 h_ini = max(int(c["hora_inicio"]), h_min)
                 h_fin = min(int(c["hora_fin"]), h_max)
-                rowspan = h_fin - h
+                
+                # Calcular la duración dentro de las franjas activas
+                if solo_clases_ocupadas:
+                    rowspan = sum(1 for hh in franjas if h_ini <= hh < h_fin)
+                else:
+                    rowspan = h_fin - h
 
                 if rowspan < 1:
                     rowspan = 1
@@ -384,7 +403,10 @@ def renderizar_matriz_vertical_con_horas_izq(df_datos, columnas, es_vista_dias=F
                 html += f"<div>{asig}</div><span class='doc-txt'>👨‍🏫 {doc}</span>"
                 html += "</td>"
             else:
-                html += "<td class='card-cell-free'>🟢 Libre</td>"
+                if solo_clases_ocupadas:
+                    html += "<td style='background: transparent; border: none;'></td>"
+                else:
+                    html += "<td class='card-cell-free'>🟢 Libre</td>"
 
         html += "</tr>"
 
@@ -456,24 +478,61 @@ with tab_horarios:
 
             idx_dia_sel = DIAS_NOMBRES.index(dia_seleccionado)
             fecha_consulta = lunes_semana + datetime.timedelta(days=idx_dia_sel)
+            fecha_consulta_str = fecha_consulta.strftime("%d/%m/%Y")
 
             df_filtered = df_horarios.copy()
             df_filtered["fecha_dt"] = pd.to_datetime(df_filtered["fecha"]).dt.date
             df_filtered = df_filtered[df_filtered["fecha_dt"] == fecha_consulta]
 
-            if q_asig.strip():
+            hay_filtro_asig = bool(q_asig.strip())
+            hay_filtro_doc = bool(q_doc.strip())
+
+            if hay_filtro_asig:
                 df_filtered = df_filtered[df_filtered["asignatura"].apply(normalizar_texto).str.contains(q_asig, regex=False)]
-            if q_doc.strip():
+            if hay_filtro_doc:
                 df_filtered = df_filtered[df_filtered["docente"].apply(normalizar_texto).str.contains(q_doc, regex=False)]
 
-            st.markdown(f"##### 📍 **Vista General de Aulas del Día:** {dia_seleccionado} ({fecha_consulta.strftime('%d/%m/%Y')})")
+            # -----------------------------------------------------------------
+            # MATRIZ CON HORAS A LA IZQUIERDA Y SIN ESPACIOS LIBRES AL FILTRAR
+            # -----------------------------------------------------------------
+            if hay_filtro_asig or hay_filtro_doc:
+                criterios = []
+                if hay_filtro_asig:
+                    criterios.append(f"materia **'{busqueda_asig.strip()}'**")
+                if hay_filtro_doc:
+                    criterios.append(f"profesor(a) **'{busqueda_doc.strip()}'**")
+                criterio_txt = " y ".join(criterios)
 
-            renderizar_matriz_vertical_con_horas_izq(
-                df_filtered,
-                salones_unicos,
-                es_vista_dias=False,
-                rango_horas=rango_horas
-            )
+                if df_filtered.empty:
+                    st.info(
+                        f"ℹ️ Para el día **{dia_seleccionado} ({fecha_consulta_str})** "
+                        f"la/el {criterio_txt} **no tiene asignación de clases** en las aulas pertenecientes al departamento, "
+                        f"por favor valide con su coordinador(a)."
+                    )
+                else:
+                    aulas_con_clase = sorted([str(s).upper() for s in df_filtered["espacio"].unique() if pd.notna(s)])
+                    
+                    st.markdown(
+                        f"##### 📍 **Clases Encontradas ({criterio_txt}) el {dia_seleccionado} ({fecha_consulta_str}):**"
+                    )
+
+                    renderizar_matriz_vertical_con_horas_izq(
+                        df_filtered,
+                        aulas_con_clase,
+                        es_vista_dias=False,
+                        rango_horas=rango_horas,
+                        solo_clases_ocupadas=True
+                    )
+            else:
+                st.markdown(f"##### 📍 **Vista General de Aulas del Día:** {dia_seleccionado} ({fecha_consulta_str})")
+
+                renderizar_matriz_vertical_con_horas_izq(
+                    df_filtered,
+                    salones_unicos,
+                    es_vista_dias=False,
+                    rango_horas=rango_horas,
+                    solo_clases_ocupadas=False
+                )
         else:
             sabado_semana = lunes_semana + datetime.timedelta(days=5)
             df_filtered = df_horarios.copy()
@@ -496,7 +555,8 @@ with tab_horarios:
                 DIAS_NOMBRES,
                 es_vista_dias=True,
                 dia_hoy_nombre=dia_nombre_hoy,
-                rango_horas=rango_horas
+                rango_horas=rango_horas,
+                solo_clases_ocupadas=bool(q_asig.strip() or q_doc.strip())
             )
 
 # -----------------------------------------------------------------------------
@@ -580,7 +640,6 @@ if st.session_state.authenticated and tab_edicion:
         else:
             df_unicos = df_db.drop_duplicates(subset=["espacio", "dia", "hora_inicio", "hora_fin", "asignatura", "docente"]).copy()
             
-            # Construcción de DataFrame sin columna ID y convirtiendo las horas a 12H
             df_editor = pd.DataFrame()
             df_editor["ESPACIO / SALÓN"] = df_unicos["espacio"].astype(str).str.upper()
             df_editor["DÍA"] = df_unicos["dia"].astype(str).str.upper()
@@ -611,7 +670,6 @@ if st.session_state.authenticated and tab_edicion:
             st.markdown("---")
             if st.button("💾 Guardar Cambios en la Base de Datos", type="primary"):
                 try:
-                    # Parsear las horas 12H a 24H antes de guardar en BD
                     df_guardar = df_modificado.copy()
                     df_guardar["HORA INICIO (24H)"] = df_guardar["HORA INICIO"].apply(parsear_12h_a_24h)
                     df_guardar["HORA FIN (24H)"] = df_guardar["HORA FIN"].apply(parsear_12h_a_24h)
