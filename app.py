@@ -332,8 +332,8 @@ def renderizar_matriz_vertical_con_horas_izq(
     else:
         franjas = list(range(h_min, h_max))
 
-    if not franjas:
-        st.info("No se encontraron clases en el rango seleccionado.")
+    if not franjas or not columnas:
+        st.info("No se encontraron clases para la consulta especificada.")
         return
 
     skip_filas = {col: 0 for col in columnas}
@@ -534,6 +534,9 @@ with tab_horarios:
                     solo_clases_ocupadas=False
                 )
         else:
+            # -----------------------------------------------------------------
+            # VISTA DE UN SALÓN ESPECÍFICO (FILTRADO DINÁMICO DE DÍAS)
+            # -----------------------------------------------------------------
             sabado_semana = lunes_semana + datetime.timedelta(days=5)
             df_filtered = df_horarios.copy()
             df_filtered["fecha_dt"] = pd.to_datetime(df_filtered["fecha"]).dt.date
@@ -543,21 +546,52 @@ with tab_horarios:
                 (df_filtered["espacio"].apply(normalizar_texto) == normalizar_texto(salon_sel))
             ]
 
-            if q_asig.strip():
+            hay_filtro_asig = bool(q_asig.strip())
+            hay_filtro_doc = bool(q_doc.strip())
+
+            if hay_filtro_asig:
                 df_filtered = df_filtered[df_filtered["asignatura"].apply(normalizar_texto).str.contains(q_asig, regex=False)]
-            if q_doc.strip():
+            if hay_filtro_doc:
                 df_filtered = df_filtered[df_filtered["docente"].apply(normalizar_texto).str.contains(q_doc, regex=False)]
 
             st.markdown(f"##### 🏛️ **Horario Semanal del Salón:** {salon_sel}")
 
-            renderizar_matriz_vertical_con_horas_izq(
-                df_filtered,
-                DIAS_NOMBRES,
-                es_vista_dias=True,
-                dia_hoy_nombre=dia_nombre_hoy,
-                rango_horas=rango_horas,
-                solo_clases_ocupadas=bool(q_asig.strip() or q_doc.strip())
-            )
+            if (hay_filtro_asig or hay_filtro_doc):
+                if df_filtered.empty:
+                    criterios = []
+                    if hay_filtro_asig:
+                        criterios.append(f"materia **'{busqueda_asig.strip()}'**")
+                    if hay_filtro_doc:
+                        criterios.append(f"profesor(a) **'{busqueda_doc.strip()}'**")
+                    criterio_txt = " y ".join(criterios)
+                    st.info(f"ℹ️ El salón **{salon_sel}** no tiene clases registradas para {criterio_txt} durante esta semana.")
+                else:
+                    # Obtener únicamente los días que tienen clase para la búsqueda
+                    dias_con_clase = []
+                    for d_nom in DIAS_NOMBRES:
+                        tiene_clase = not df_filtered[
+                            df_filtered["dia"].apply(normalizar_texto) == normalizar_texto(d_nom)
+                        ].empty
+                        if tiene_clase:
+                            dias_con_clase.append(d_nom)
+
+                    renderizar_matriz_vertical_con_horas_izq(
+                        df_filtered,
+                        dias_con_clase,
+                        es_vista_dias=True,
+                        dia_hoy_nombre=dia_nombre_hoy,
+                        rango_horas=rango_horas,
+                        solo_clases_ocupadas=True
+                    )
+            else:
+                renderizar_matriz_vertical_con_horas_izq(
+                    df_filtered,
+                    DIAS_NOMBRES,
+                    es_vista_dias=True,
+                    dia_hoy_nombre=dia_nombre_hoy,
+                    rango_horas=rango_horas,
+                    solo_clases_ocupadas=False
+                )
 
 # -----------------------------------------------------------------------------
 # TAB 2: PRÓXIMOS EVENTOS
