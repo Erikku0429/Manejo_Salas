@@ -282,13 +282,13 @@ def mostrar_popup_exito(total_registros, f_ini, f_fin):
     if st.button("Ir a Consulta de Horarios ➡️", type="primary", on_click=ir_a_pestaña, args=("📅 Consulta de Horarios (Público / QR)",)):
         st.rerun()
 
-@st.dialog("🎉 Evento Asignado con Éxito")
-def mostrar_popup_evento_exito(nombre_evento, salon, fecha, hora_ini, hora_fin, responsable):
-    st.success("### ¡El evento ha sido registrado correctamente!")
+@st.dialog("🎉 Programación Registrada con Éxito")
+def mostrar_popup_evento_exito(nombre_evento, salon, resumen_fechas, hora_ini, hora_fin, responsable):
+    st.success("### ¡El evento o contingencia ha sido registrado correctamente!")
     st.markdown(
-        f"• **Evento:** **{nombre_evento}**\n"
+        f"• **Evento / Contingencia:** **{nombre_evento}**\n"
         f"• **Lugar:** **{salon}**\n"
-        f"• **Fecha:** **{fecha}**\n"
+        f"• **Programación / Fechas:** **{resumen_fechas}**\n"
         f"• **Horario:** **{formatear_12h(hora_ini)} - {formatear_12h(hora_fin)}**\n"
         f"• **Responsable:** **{responsable}**"
     )
@@ -955,56 +955,107 @@ if st.session_state.user_role == "Administrador" and tab_cargue:
 # -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_eventos_adm:
     with tab_eventos_adm:
-        st.subheader("➕ Registrar Evento o Reserva Especial")
+        st.subheader("➕ Registrar Evento, Reserva Especial o Contingencia Remota")
+        st.caption("Asigna eventos únicos o programaciones recurrentes por semanas (ej. semanas 100% remotas).")
 
         df_horarios = db.obtener_todos_los_horarios()
-        salones_db_dinamicos = sorted([str(s).upper() for s in df_horarios["espacio"].unique() if pd.notna(s)]) if not df_horarios.empty else ["AULA GENERAL"]
+        salones_db_dinamicos = (
+            sorted([str(s).upper() for s in df_horarios["espacio"].unique() if pd.notna(s)])
+            if not df_horarios.empty
+            else ["AULA GENERAL"]
+        )
 
-        ev_salon = st.selectbox("1️⃣ Salón / Aula:", options=salones_db_dinamicos)
-        ev_fecha = st.date_input("2️⃣ Fecha del Evento:", value=datetime.date.today())
+        col_ev1, col_ev2 = st.columns(2)
+        with col_ev1:
+            ev_salon = st.selectbox("1️⃣ Salón / Aula:", options=salones_db_dinamicos)
+            tipo_programacion = st.radio(
+                "2️⃣ Modo de Programación:",
+                ["Puntual (Un solo día)", "Recurrente por Semanas (Ej. Clase Remota)"],
+                horizontal=True,
+            )
+
+        with col_ev2:
+            if tipo_programacion == "Puntual (Un solo día)":
+                fechas_evento = [st.date_input("3️⃣ Fecha del Evento:", value=datetime.date.today())]
+            else:
+                st.markdown("**3️⃣ Rango de Semanas para la Recurrencia:**")
+                col_f_rec1, col_f_rec2 = st.columns(2)
+                f_inicio_rec = col_f_rec1.date_input("Fecha Inicio:", value=datetime.date.today())
+                f_fin_rec = col_f_rec2.date_input("Fecha Fin:", value=datetime.date.today() + datetime.timedelta(weeks=4))
+                
+                # Generar las fechas correspondientes al mismo día de la semana entre el rango seleccionado
+                fechas_evento = []
+                if f_fin_rec >= f_inicio_rec:
+                    curr_date = f_inicio_rec
+                    while curr_date <= f_fin_rec:
+                        fechas_evento.append(curr_date)
+                        curr_date += datetime.timedelta(days=7)
 
         col_h1, col_h2 = st.columns(2)
-        ev_h_ini_lbl = col_h1.selectbox("3️⃣ Hora Inicio:", options=OPCIONES_HORAS_12H[:-1], index=3)
-        ev_h_fin_lbl = col_h2.selectbox("4️⃣ Hora Fin:", options=OPCIONES_HORAS_12H[1:], index=4)
+        ev_h_ini_lbl = col_h1.selectbox("4️⃣ Hora Inicio:", options=OPCIONES_HORAS_12H[:-1], index=3)
+        ev_h_fin_lbl = col_h2.selectbox("5️⃣ Hora Fin:", options=OPCIONES_HORAS_12H[1:], index=4)
 
         ev_h_ini = parsear_12h_a_24h(ev_h_ini_lbl)
         ev_h_fin = parsear_12h_a_24h(ev_h_fin_lbl)
 
-        ev_asig = st.text_input("5️⃣ Nombre del Evento / Clase Faltante:", placeholder="Ej. CONTINGENCIA MATEMATICAS")
-        ev_doc = st.text_input("6️⃣ Responsable / Docente:", placeholder="Ej. ING. GARCÍA")
+        col_info1, col_info2 = st.columns(2)
+        ev_asig = col_info1.text_input("6️⃣ Nombre del Evento / Contingencia Remota:", placeholder="Ej. CLASE REMOTA / TALLER VIRTUAL")
+        ev_doc = col_info2.text_input("7️⃣ Responsable / Docente:", placeholder="Ej. ING. GARCÍA")
 
-        fecha_ev_str = ev_fecha.strftime("%Y-%m-%d")
-        conflictos = db.verificar_conflicto_horario(ev_salon, fecha_ev_str, ev_h_ini, ev_h_fin)
+        # Verificar conflictos para todas las fechas seleccionadas
+        conflictos_totales = []
+        for f_e in fechas_evento:
+            f_str = f_e.strftime("%Y-%m-%d")
+            conf = db.verificar_conflicto_horario(ev_salon, f_str, ev_h_ini, ev_h_fin)
+            if conf:
+                conflictos_totales.append((f_e, conf))
 
         ev_obs = ""
         requiere_obs = False
 
-        if conflictos:
+        if conflictos_totales:
             requiere_obs = True
-            st.error(f"🚨 **Espacio Ya Ocupado:** El salón **{ev_salon}** ya tiene programación el **{fecha_ev_str}** entre las **{formatear_12h(ev_h_ini)} y {formatear_12h(ev_h_fin)}**:")
-            for c in conflictos:
-                c_asig, c_doc, c_tipo, c_ini, c_fin = c[1].upper(), c[2].upper(), c[5].upper(), c[3], c[4]
-                st.warning(f"• **{c_asig}** ({c_tipo}) | Responsable: **{c_doc}** | Horario: {formatear_12h(c_ini)} - {formatear_12h(c_fin)}")
+            st.warning(f"⚠️ **Conflicto de Espacio Detectado:** El salón **{ev_salon}** ya tiene clases o reservas asignadas en **{len(conflictos_totales)}** de las fechas seleccionadas.")
+            
+            with st.expander("🔍 Ver detalle de los cruces de horario"):
+                for f_conf, conf_list in conflictos_totales:
+                    st.write(f"📅 **Fecha: {f_conf.strftime('%d/%m/%Y')}**")
+                    for c in conf_list:
+                        st.caption(f"• **{c[1].upper()}** ({c[5].upper()}) | Docente: {c[2].upper()} | Horario: {formatear_12h(c[3])} - {formatear_12h(c[4])}")
 
-            st.markdown("---")
-            ev_obs = st.text_area("7️⃣ Observaciones (OBLIGATORIO por ocupar un espacio asignado):", placeholder="Especifica la razón por la cual se reasigna el espacio...")
+            ev_obs = st.text_area(
+                "8️⃣ Observaciones (OBLIGATORIO para reasignar / liberar espacio ocupado):",
+                placeholder="Ej. Reasignación por modalidad 100% remota autorizada por coordinación durante estas semanas.",
+            )
         else:
-            st.success(f"🟢 **Aula Libre:** El salón {ev_salon} está completamente disponible en la franja {formatear_12h(ev_h_ini)} a {formatear_12h(ev_h_fin)}.")
+            st.success(f"🟢 **Espacio Disponible:** El salón {ev_salon} está completamente libre en la franja y fechas seleccionadas ({len(fechas_evento)} sesión/es).")
 
         st.markdown("---")
-        if st.button("💾 Guardar y Asignar Espacio", type="primary"):
+        if st.button("💾 Guardar y Asignar Programación", type="primary"):
             if ev_h_fin <= ev_h_ini:
                 st.error("La Hora Fin debe ser posterior a la Hora Inicio.")
             elif not ev_asig.strip() or not ev_doc.strip():
-                st.error("Debes ingresar el Nombre del Evento / Clase y el Responsable.")
+                st.error("Debes ingresar el Nombre del Evento / Contingencia y el Responsable.")
             elif requiere_obs and not ev_obs.strip():
-                st.error("⚠️ **Observación Requerida:** Debes ingresar la razón de la asignación sobre un espacio que ya estaba ocupado.")
+                st.error("⚠️ **Observación Requerida:** Especifica el motivo de la liberación o cruce de espacio.")
+            elif not fechas_evento:
+                st.error("Rango de fechas no válido.")
             else:
-                db.agregar_evento_especial(
-                    ev_salon, fecha_ev_str, ev_h_ini, ev_h_fin, ev_asig, ev_doc, ev_obs,
-                    usuario=st.session_state.username, rol=st.session_state.user_role
-                )
-                mostrar_popup_evento_exito(ev_asig, ev_salon, fecha_ev_str, ev_h_ini, ev_h_fin, ev_doc)
+                # Guardar en BD fecha por fecha
+                registros_guardados = 0
+                for f_e in fechas_evento:
+                    f_str = f_e.strftime("%Y-%m-%d")
+                    db.agregar_evento_especial(
+                        ev_salon, f_str, ev_h_ini, ev_h_fin, ev_asig, ev_doc, ev_obs,
+                        usuario=st.session_state.username, rol=st.session_state.user_role
+                    )
+                    registros_guardados += 1
+
+                f_primera = fechas_evento[0].strftime("%d/%m/%Y")
+                f_ultima = fechas_evento[-1].strftime("%d/%m/%Y")
+                resumen_fechas = f"{f_primera}" if len(fechas_evento) == 1 else f"Del {f_primera} al {f_ultima} ({registros_guardados} semanas)"
+
+                mostrar_popup_evento_exito(ev_asig, ev_salon, resumen_fechas, ev_h_ini, ev_h_fin, ev_doc)
 
 # -----------------------------------------------------------------------------
 # TAB AUDITORÍA Y LOGS (SOLO ADMINISTRADOR)
