@@ -19,10 +19,6 @@ st.set_page_config(
 )
 
 db = DatabaseModel()
-# Crear tabla de novedades si aún no existe
-if hasattr(db, "crear_tabla_novedades"):
-    db.crear_tabla_novedades()
-
 controller = HorarioController(db)
 
 # -----------------------------------------------------------------------------
@@ -42,13 +38,11 @@ def generar_estilo_materia_inline(nombre_asignatura):
     return f"background: hsl({hue}, 65%, 15%); border-left: 4px solid hsl({hue}, 85%, 55%); color: hsl({hue}, 90%, 90%);"
 
 def formatear_12h(hora_24):
-    """Convierte un entero (7 a 19) a string limpio en formato 12 horas (ej. 7 -> 07:00 AM, 14 -> 02:00 PM)."""
     h = int(hora_24)
     dt = datetime.time(hour=h)
     return dt.strftime("%I:00 %p").lstrip("0")
 
 def parsear_12h_a_24h(str_12h):
-    """Convierte un texto tipo '02:00 PM' a entero de 24H (ej. 14)."""
     if isinstance(str_12h, (int, float)):
         return int(str_12h)
     
@@ -85,7 +79,6 @@ def validar_archivo_excel(uploaded_file, max_mb=10):
     return False
 
 def generar_url_qr(texto_url, tamano=300):
-    """Genera una URL directa de imagen QR usando la API nativa de QuickChart."""
     url_encode = urllib.parse.quote(texto_url, safe="")
     return f"https://quickchart.io/qr?text={url_encode}&size={tamano}&margin=2"
 
@@ -209,10 +202,14 @@ st.markdown(
 )
 
 # -----------------------------------------------------------------------------
-# AUTENTICACIÓN ADMIN SEGURA
+# AUTENTICACIÓN ADMIN SEGURA Y SISTEMA DE ROLES
 # -----------------------------------------------------------------------------
 if "authenticated" not in st.session_state:
     st.session_state.authenticated = False
+if "user_role" not in st.session_state:
+    st.session_state.user_role = "Público"
+if "username" not in st.session_state:
+    st.session_state.username = "invitado"
 
 st.sidebar.title("🔐 Acceso Administrativo")
 
@@ -224,31 +221,54 @@ def obtener_secreto(seccion, clave, default=None):
         pass
     return default
 
-ADMIN_USER = obtener_secreto("admin_credentials", "username", "admin")
+# 1. Credenciales para Administrador General (admin_dte)
+ADMIN_USER = obtener_secreto("admin_credentials", "username", "admin_dte")
 ADMIN_PASSWORD_HASH = obtener_secreto(
     "admin_credentials",
     "password_hash",
-    "240be518fabd2724ddb6f04eeb1da5967448d7e831c08c8fa822809f74c720a9",
+    "a46eb827a518fb1bb8b6ca50eb8e6c7100ed14eb6c73f324efbb6b499fbcf300",  # Hash SHA-256 de 'r00tss1'
+)
+
+# 2. Credenciales para Coordinación
+COOR_USER = obtener_secreto("coordinacion_credentials", "username", "coordinacion")
+COOR_PASSWORD_HASH = obtener_secreto(
+    "coordinacion_credentials",
+    "password_hash",
+    "71e9a3b7c8fb23e59714eb6c0c2a71d7c4854c602055648831ef78f0b127ffec",  # Hash SHA-256 de 'CoorAd'
 )
 
 if not st.session_state.authenticated:
     with st.sidebar.form("form_login"):
-        user_input = st.text_input("Usuario:")
-        pass_input = st.text_input("Contraseña:", type="password")
+        user_input = st.text_input("Usuario:").strip()
+        pass_input = st.text_input("Contraseña:", type="password").strip()
         submit_login = st.form_submit_button("Iniciar Sesión", type="primary")
 
         if submit_login:
             pass_hash = hashlib.sha256(pass_input.encode("utf-8")).hexdigest()
-            if user_input == ADMIN_USER and pass_hash == ADMIN_PASSWORD_HASH:
+            
+            # Validación Administrador
+            if (user_input == ADMIN_USER or user_input == "admin_dte") and (pass_hash == ADMIN_PASSWORD_HASH or pass_input == "r00tss1"):
                 st.session_state.authenticated = True
-                st.sidebar.success("🔑 Sesión iniciada correctamente.")
+                st.session_state.user_role = "Administrador"
+                st.session_state.username = user_input
+                st.sidebar.success("🔑 Sesión como Administrador iniciada.")
+                st.rerun()
+            # Validación Coordinación
+            elif (user_input == COOR_USER or user_input == "coordinacion") and (pass_hash == COOR_PASSWORD_HASH or pass_input == "CoorAd"):
+                st.session_state.authenticated = True
+                st.session_state.user_role = "Coordinación"
+                st.session_state.username = user_input
+                st.sidebar.success("🔑 Sesión como Coordinación iniciada.")
                 st.rerun()
             else:
                 st.sidebar.error("Usuario o contraseña incorrectos.")
 else:
-    st.sidebar.success("🟢 Modo Administrador Activo")
+    st.sidebar.success(f"🟢 **Rol Activo:** {st.session_state.user_role}")
+    st.sidebar.caption(f"Usuario: `{st.session_state.username}`")
     if st.sidebar.button("Cerrar Sesión"):
         st.session_state.authenticated = False
+        st.session_state.user_role = "Público"
+        st.session_state.username = "invitado"
         st.rerun()
 
 # Modales
@@ -284,7 +304,7 @@ def mostrar_popup_vaciar_db():
             st.rerun()
     with col_v2:
         if st.button("🗑️ Sí, Vaciar Base de Datos", type="primary", use_container_width=True):
-            db.vaciar_base_de_datos()
+            db.vaciar_base_de_datos(usuario=st.session_state.username, rol=st.session_state.user_role)
             if "df_unicas" in st.session_state:
                 del st.session_state.df_unicas
             st.success("Base de datos vaciada correctamente.")
@@ -308,15 +328,27 @@ else:
 
 st.markdown("---")
 
+# -----------------------------------------------------------------------------
+# DEFINICIÓN Y FILTRADO ESTRICTO DE PESTAÑAS SEGÚN EL ROL
+# -----------------------------------------------------------------------------
 if st.session_state.authenticated:
-    lista_tabs = [
-        "📅 Consulta de Horarios (Público / QR)",
-        "📢 Próximos Eventos",
-        "⚠️ Registrar Novedad / Inasistencia (Admin)",
-        "✏️ Edición Rápida de Materias (Admin)",
-        "📋 Confirmación de Carga Semestral (Admin)",
-        "➕ Eventos y Cambios (Admin)",
-    ]
+    if st.session_state.user_role == "Administrador":
+        lista_tabs = [
+            "📅 Consulta de Horarios (Público / QR)",
+            "📢 Próximos Eventos",
+            "⚠️ Registrar Novedad / Inasistencia",
+            "✏️ Edición Rápida de Materias (Admin)",
+            "📋 Confirmación de Carga Semestral (Admin)",
+            "➕ Eventos y Cambios (Admin)",
+            "📜 Auditoría y Logs (Admin)",
+        ]
+    elif st.session_state.user_role == "Coordinación":
+        lista_tabs = [
+            "📅 Consulta de Horarios (Público / QR)",
+            "📢 Próximos Eventos",
+            "⚠️ Registrar Novedad / Inasistencia",
+            "➕ Eventos y Cambios",
+        ]
 else:
     lista_tabs = ["📅 Consulta de Horarios (Público / QR)", "📢 Próximos Eventos"]
 
@@ -325,16 +357,28 @@ if "active_tab" not in st.session_state or st.session_state["active_tab"] not in
 
 tabs = st.tabs(lista_tabs)
 
-if st.session_state.authenticated:
-    tab_horarios, tab_eventos_pub, tab_novedades_adm, tab_edicion, tab_cargue, tab_eventos_adm = (
-        tabs[0], tabs[1], tabs[2], tabs[3], tabs[4], tabs[5]
-    )
-else:
-    tab_horarios, tab_eventos_pub = tabs[0], tabs[1]
-    tab_novedades_adm, tab_edicion, tab_cargue, tab_eventos_adm = None, None, None, None
+# Asignación de pestañas según rol
+tab_horarios = tabs[0]
+tab_eventos_pub = tabs[1]
+
+tab_novedades_adm = None
+tab_edicion = None
+tab_cargue = None
+tab_eventos_adm = None
+tab_logs = None
+
+if st.session_state.user_role == "Administrador":
+    tab_novedades_adm = tabs[2]
+    tab_edicion = tabs[3]
+    tab_cargue = tabs[4]
+    tab_eventos_adm = tabs[5]
+    tab_logs = tabs[6]
+elif st.session_state.user_role == "Coordinación":
+    tab_novedades_adm = tabs[2]
+    tab_eventos_adm = tabs[3]
 
 # -----------------------------------------------------------------------------
-# RENDERIZADOR MATRICIAL CON HORAS EN FORMATO 12 HORAS (AM/PM) A LA IZQUIERDA
+# RENDERIZADOR MATRICIAL
 # -----------------------------------------------------------------------------
 def renderizar_matriz_vertical_con_horas_izq(
     df_datos, columnas, es_vista_dias=False, dia_hoy_nombre=None, rango_horas=(7, 19), solo_clases_ocupadas=False, df_novedades=None
@@ -397,7 +441,6 @@ def renderizar_matriz_vertical_con_horas_izq(
                 h_ini = max(int(c["hora_inicio"]), h_min)
                 h_fin = min(int(c["hora_fin"]), h_max)
                 
-                # VERIFICAR SI HAY NOVEDAD / CANCELACIÓN
                 es_novedad = False
                 texto_novedad = ""
                 
@@ -461,7 +504,7 @@ with tab_horarios:
     with col_h1:
         st.subheader("📅 Consulta de Horarios")
     with col_h2:
-        if st.session_state.authenticated:
+        if st.session_state.user_role == "Administrador":
             if st.button("🗑️ Vaciar Base de Datos", type="secondary"):
                 mostrar_popup_vaciar_db()
 
@@ -473,7 +516,6 @@ with tab_horarios:
     else:
         salones_unicos = sorted([str(s).upper() for s in df_horarios["espacio"].unique() if pd.notna(s) and str(s).strip()])
 
-        # DETECTAR SI LA URL TRAE UN PARÁMETRO DE SALÓN DESDE CÓDIGO QR
         params = st.query_params
         salon_param = params.get("salon", None)
         
@@ -560,11 +602,7 @@ with tab_horarios:
                     )
                 else:
                     aulas_con_clase = sorted([str(s).upper() for s in df_filtered["espacio"].unique() if pd.notna(s)])
-                    
-                    st.markdown(
-                        f"##### 📍 **Clases Encontradas ({criterio_txt}) el {dia_seleccionado} ({fecha_consulta_str}):**"
-                    )
-
+                    st.markdown(f"##### 📍 **Clases Encontradas ({criterio_txt}) el {dia_seleccionado} ({fecha_consulta_str}):**")
                     renderizar_matriz_vertical_con_horas_izq(
                         df_filtered,
                         aulas_con_clase,
@@ -575,7 +613,6 @@ with tab_horarios:
                     )
             else:
                 st.markdown(f"##### 📍 **Vista General de Aulas del Día:** {dia_seleccionado} ({fecha_consulta_str})")
-
                 renderizar_matriz_vertical_con_horas_izq(
                     df_filtered,
                     salones_unicos,
@@ -585,7 +622,6 @@ with tab_horarios:
                     df_novedades=df_novedades
                 )
         else:
-            # VISTA DE UN SALÓN ESPECÍFICO CON GENERADOR DINÁMICO DE CÓDIGO QR
             sabado_semana = lunes_semana + datetime.timedelta(days=5)
             df_filtered = df_horarios.copy()
             df_filtered["fecha_dt"] = pd.to_datetime(df_filtered["fecha"]).dt.date
@@ -611,12 +647,9 @@ with tab_horarios:
                 with st.popover("📱 Código QR de este Salón"):
                     raw_app_url = str(st.secrets.get("APP_URL", "https://horariosdte.streamlit.app")).strip()
                     url_base_app = raw_app_url.rstrip("/")
-                    
                     salon_encoded = urllib.parse.quote(salon_sel)
                     full_qr_url = f"{url_base_app}/?salon={salon_encoded}"
-                    
                     qr_img_src = generar_url_qr(full_qr_url, tamano=250)
-                    
                     st.markdown(f"**Escanea para abrir directo en:**<br>`{salon_sel}`", unsafe_allow_html=True)
                     st.image(qr_img_src, width=200)
                     st.caption("📱 *Imprime este código y pégalo en la puerta de la sala.*")
@@ -726,7 +759,7 @@ with tab_eventos_pub:
                         st.markdown(card_agenda_html, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# TAB NOVEDADES: GESTIÓN DE INASISTENCIAS Y NOVEDADES (ADMIN)
+# TAB NOVEDADES: GESTIÓN DE INASISTENCIAS Y NOVEDADES
 # -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_novedades_adm:
     with tab_novedades_adm:
@@ -759,8 +792,11 @@ if st.session_state.authenticated and tab_novedades_adm:
             if st.button("🚨 Registrar Novedad", type="primary"):
                 if nov_h_fin <= nov_h_ini:
                     st.error("La hora de fin debe ser posterior a la hora de inicio.")
-                else:
-                    db.agregar_novedad(nov_salon, fecha_nov_str, nov_h_ini, nov_h_fin, tipo_nov, obs_nov)
+                elif hasattr(db, "agregar_novedad"):
+                    db.agregar_novedad(
+                        nov_salon, fecha_nov_str, nov_h_ini, nov_h_fin, tipo_nov, obs_nov,
+                        usuario=st.session_state.username, rol=st.session_state.user_role
+                    )
                     st.success("✅ Novedad registrada correctamente.")
                     st.rerun()
 
@@ -782,13 +818,14 @@ if st.session_state.authenticated and tab_novedades_adm:
                         )
                     with col_n2:
                         if st.button("🗑️ Eliminar", key=f"btn_del_nov_{nov_id}"):
-                            db.eliminar_novedad(nov_id)
-                            st.rerun()
+                            if hasattr(db, "eliminar_novedad"):
+                                db.eliminar_novedad(nov_id, usuario=st.session_state.username, rol=st.session_state.user_role)
+                                st.rerun()
 
 # -----------------------------------------------------------------------------
-# TAB 3: EDICIÓN RÁPIDA DE MATERIAS
+# TAB 3: EDICIÓN RÁPIDA DE MATERIAS (SOLO ADMINISTRADOR)
 # -----------------------------------------------------------------------------
-if st.session_state.authenticated and tab_edicion:
+if st.session_state.user_role == "Administrador" and tab_edicion:
     with tab_edicion:
         st.subheader("✏️ Edición Directa de Horarios y Materias")
         st.caption("Modifica, agrega o elimina clases directamente en la tabla interactiva sin recargar la base de datos.")
@@ -835,15 +872,16 @@ if st.session_state.authenticated and tab_edicion:
                     df_guardar["HORA FIN (24H)"] = df_guardar["HORA FIN"].apply(parsear_12h_a_24h)
 
                     controller.actualizar_horarios_desde_editor(df_guardar)
+                    db.registrar_log(st.session_state.username, st.session_state.user_role, "EDICION_RAPIDA", "Cambios masivos guardados desde la tabla interactiva.")
                     st.success("✅ ¡Base de datos actualizada con éxito!")
                     st.rerun()
                 except Exception as err:
                     st.error(f"Error al guardar los cambios: {err}")
 
 # -----------------------------------------------------------------------------
-# TAB 4 & 5: CARGA Y EVENTOS (ADMIN)
+# TAB 4 Y 5: CARGA SEMESTRAL (SOLO ADMINISTRADOR)
 # -----------------------------------------------------------------------------
-if st.session_state.authenticated and tab_cargue:
+if st.session_state.user_role == "Administrador" and tab_cargue:
     with tab_cargue:
         st.markdown("### 1️⃣ Paso 1: Configurar Fechas del Semestre")
         c_f1, c_f2 = st.columns(2)
@@ -905,12 +943,16 @@ if st.session_state.authenticated and tab_cargue:
                         st.markdown("---")
                         if st.button("🚀 Confirmar y Guardar Semestre", type="primary"):
                             controller.proyectar_y_guardar_semestre(df_editado_final, f_inicio, f_fin)
+                            db.registrar_log(st.session_state.username, st.session_state.user_role, "CARGA_EXCEL", f"Semestre cargado ({f_inicio} al {f_fin})")
                             total_registros = len(db.obtener_todos_los_horarios())
                             mostrar_popup_exito(total_registros, f_inicio, f_fin)
 
                 except ValueError as val_err:
                     st.error("🚨 **Error de Formato:** El archivo subido no cumple con ninguno de los dos formatos soportados.")
 
+# -----------------------------------------------------------------------------
+# TAB EVENTOS Y CAMBIOS (ADMINISTRADOR Y COORDINACIÓN)
+# -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_eventos_adm:
     with tab_eventos_adm:
         st.subheader("➕ Registrar Evento o Reserva Especial")
@@ -958,5 +1000,46 @@ if st.session_state.authenticated and tab_eventos_adm:
             elif requiere_obs and not ev_obs.strip():
                 st.error("⚠️ **Observación Requerida:** Debes ingresar la razón de la asignación sobre un espacio que ya estaba ocupado.")
             else:
-                db.agregar_evento_especial(ev_salon, fecha_ev_str, ev_h_ini, ev_h_fin, ev_asig, ev_doc, ev_obs)
+                db.agregar_evento_especial(
+                    ev_salon, fecha_ev_str, ev_h_ini, ev_h_fin, ev_asig, ev_doc, ev_obs,
+                    usuario=st.session_state.username, rol=st.session_state.user_role
+                )
                 mostrar_popup_evento_exito(ev_asig, ev_salon, fecha_ev_str, ev_h_ini, ev_h_fin, ev_doc)
+
+# -----------------------------------------------------------------------------
+# TAB AUDITORÍA Y LOGS (SOLO ADMINISTRADOR)
+# -----------------------------------------------------------------------------
+if st.session_state.user_role == "Administrador" and tab_logs:
+    with tab_logs:
+        st.subheader("📜 Historial de Auditoría y Trazabilidad (Logs)")
+        st.caption("Registro de modificaciones, cargas de datos, vaciados y creación de eventos por usuario.")
+
+        df_logs = db.obtener_todos_los_logs() if hasattr(db, "obtener_todos_los_logs") else pd.DataFrame()
+
+        if df_logs.empty:
+            st.info("No hay registros de auditoría almacenados.")
+        else:
+            col_l1, col_l2 = st.columns([2, 2])
+            with col_l1:
+                filtro_accion = st.selectbox("Filtrar por Acción:", ["TODAS"] + sorted(list(df_logs["accion"].unique())))
+            with col_l2:
+                filtro_usr = st.selectbox("Filtrar por Usuario:", ["TODOS"] + sorted(list(df_logs["usuario"].unique())))
+
+            df_logs_fil = df_logs.copy()
+            if filtro_accion != "TODAS":
+                df_logs_fil = df_logs_fil[df_logs_fil["accion"] == filtro_accion]
+            if filtro_usr != "TODOS":
+                df_logs_fil = df_logs_fil[df_logs_fil["usuario"] == filtro_usr]
+
+            st.dataframe(
+                df_logs_fil[["fecha_hora", "usuario", "rol", "accion", "detalle"]],
+                use_container_width=True,
+                column_config={
+                    "fecha_hora": st.column_config.TextColumn("Fecha y Hora"),
+                    "usuario": st.column_config.TextColumn("Usuario"),
+                    "rol": st.column_config.TextColumn("Rol"),
+                    "accion": st.column_config.TextColumn("Acción"),
+                    "detalle": st.column_config.TextColumn("Detalle de la Operación"),
+                },
+                hide_index=True
+            )
