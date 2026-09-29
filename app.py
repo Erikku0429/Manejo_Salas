@@ -22,6 +22,36 @@ db = DatabaseModel()
 controller = HorarioController(db)
 
 # -----------------------------------------------------------------------------
+# FUNCIÓN DE INICIALIZACIÓN SEGURA DE BASE DE DATOS
+# -----------------------------------------------------------------------------
+def inicializar_tabla_solicitudes(db_obj):
+    query = """
+        CREATE TABLE IF NOT EXISTS solicitudes_prestamo (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            espacio TEXT NOT NULL,
+            fecha TEXT NOT NULL,
+            hora_inicio INTEGER NOT NULL,
+            hora_fin INTEGER NOT NULL,
+            motivo TEXT NOT NULL,
+            docente TEXT NOT NULL,
+            contacto TEXT,
+            estado TEXT DEFAULT 'PENDIENTE',
+            fecha_solicitud TEXT,
+            observacion_respuesta TEXT
+        )
+    """
+    try:
+        if hasattr(db_obj, "ejecutar_consulta"):
+            db_obj.ejecutar_consulta(query)
+        elif hasattr(db_obj, "conn") and db_obj.conn:
+            db_obj.conn.execute(query)
+            db_obj.conn.commit()
+    except Exception:
+        pass
+
+inicializar_tabla_solicitudes(db)
+
+# -----------------------------------------------------------------------------
 # FUNCIONES AUXILIARES Y FORMATO 12 HORAS (AM/PM)
 # -----------------------------------------------------------------------------
 def normalizar_texto(texto):
@@ -221,7 +251,6 @@ def obtener_secreto(seccion, clave, default=None):
         pass
     return default
 
-# 1. Credenciales para Administrador General (admin_dte)
 ADMIN_USER = obtener_secreto("admin_credentials", "username", "admin_dte")
 ADMIN_PASSWORD_HASH = obtener_secreto(
     "admin_credentials",
@@ -229,7 +258,6 @@ ADMIN_PASSWORD_HASH = obtener_secreto(
     "a46eb827a518fb1bb8b6ca50eb8e6c7100ed14eb6c73f324efbb6b499fbcf300",  # Hash SHA-256 de 'r00tss1'
 )
 
-# 2. Credenciales para Coordinación
 COOR_USER = obtener_secreto("coordinacion_credentials", "username", "coordinacion")
 COOR_PASSWORD_HASH = obtener_secreto(
     "coordinacion_credentials",
@@ -246,14 +274,12 @@ if not st.session_state.authenticated:
         if submit_login:
             pass_hash = hashlib.sha256(pass_input.encode("utf-8")).hexdigest()
             
-            # Validación Administrador
             if (user_input == ADMIN_USER or user_input == "admin_dte") and (pass_hash == ADMIN_PASSWORD_HASH or pass_input == "r00tss1"):
                 st.session_state.authenticated = True
                 st.session_state.user_role = "Administrador"
                 st.session_state.username = user_input
                 st.sidebar.success("🔑 Sesión como Administrador iniciada.")
                 st.rerun()
-            # Validación Coordinación
             elif (user_input == COOR_USER or user_input == "coordinacion") and (pass_hash == COOR_PASSWORD_HASH or pass_input == "CoorAd"):
                 st.session_state.authenticated = True
                 st.session_state.user_role = "Coordinación"
@@ -336,6 +362,8 @@ if st.session_state.authenticated:
         lista_tabs = [
             "📅 Consulta de Horarios (Público / QR)",
             "📢 Próximos Eventos",
+            "📩 Solicitar Préstamo de Aula",
+            "📥 Aprobación de Préstamos (Admin)",
             "⚠️ Registrar Novedad / Inasistencia",
             "✏️ Edición Rápida de Materias (Admin)",
             "📋 Confirmación de Carga Semestral (Admin)",
@@ -346,21 +374,29 @@ if st.session_state.authenticated:
         lista_tabs = [
             "📅 Consulta de Horarios (Público / QR)",
             "📢 Próximos Eventos",
+            "📩 Solicitar Préstamo de Aula",
+            "📥 Aprobación de Préstamos",
             "⚠️ Registrar Novedad / Inasistencia",
             "➕ Eventos y Cambios",
         ]
 else:
-    lista_tabs = ["📅 Consulta de Horarios (Público / QR)", "📢 Próximos Eventos"]
+    lista_tabs = [
+        "📅 Consulta de Horarios (Público / QR)",
+        "📢 Próximos Eventos",
+        "📩 Solicitar Préstamo de Aula",
+    ]
 
 if "active_tab" not in st.session_state or st.session_state["active_tab"] not in lista_tabs:
     st.session_state["active_tab"] = lista_tabs[0]
 
 tabs = st.tabs(lista_tabs)
 
-# Asignación de pestañas según rol
+# Asignación de pestañas seguras
 tab_horarios = tabs[0]
 tab_eventos_pub = tabs[1]
+tab_solicitud_pub = tabs[2]
 
+tab_aprobaciones = None
 tab_novedades_adm = None
 tab_edicion = None
 tab_cargue = None
@@ -368,14 +404,16 @@ tab_eventos_adm = None
 tab_logs = None
 
 if st.session_state.user_role == "Administrador":
-    tab_novedades_adm = tabs[2]
-    tab_edicion = tabs[3]
-    tab_cargue = tabs[4]
-    tab_eventos_adm = tabs[5]
-    tab_logs = tabs[6]
+    tab_aprobaciones = tabs[3]
+    tab_novedades_adm = tabs[4]
+    tab_edicion = tabs[5]
+    tab_cargue = tabs[6]
+    tab_eventos_adm = tabs[7]
+    tab_logs = tabs[8]
 elif st.session_state.user_role == "Coordinación":
-    tab_novedades_adm = tabs[2]
-    tab_eventos_adm = tabs[3]
+    tab_aprobaciones = tabs[3]
+    tab_novedades_adm = tabs[4]
+    tab_eventos_adm = tabs[5]
 
 # -----------------------------------------------------------------------------
 # RENDERIZADOR MATRICIAL
@@ -759,6 +797,150 @@ with tab_eventos_pub:
                         st.markdown(card_agenda_html, unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
+# TAB 3: SOLICITUD PÚBLICA DE PRÉSTAMO DE AULAS
+# -----------------------------------------------------------------------------
+with tab_solicitud_pub:
+    st.subheader("📩 Formulario de Solicitud de Préstamo de Aulas / Laboratorios")
+    st.caption("Los docentes y representantes pueden solicitar reserva de espacio. La solicitud quedará pendiente de aprobación por parte de Coordinación.")
+
+    df_horarios_sol = db.obtener_todos_los_horarios()
+    salones_sol_list = sorted([str(s).upper() for s in df_horarios_sol["espacio"].unique() if pd.notna(s)]) if not df_horarios_sol.empty else ["AULA GENERAL"]
+
+    with st.form("form_solicitud_prestamo"):
+        col_s1, col_s2 = st.columns(2)
+        sol_salon = col_s1.selectbox("🏛️ Aula Solicitada:", options=salones_sol_list)
+        sol_fecha = col_s2.date_input("📅 Fecha Requerida:", value=datetime.date.today())
+
+        col_sh1, col_sh2 = st.columns(2)
+        sol_h_ini_lbl = col_sh1.selectbox("⏰ Hora Inicio:", options=OPCIONES_HORAS_12H[:-1], index=3)
+        sol_h_fin_lbl = col_sh2.selectbox("⏰ Hora Fin:", options=OPCIONES_HORAS_12H[1:], index=4)
+
+        sol_docente = st.text_input("👨‍🏫 Docente / Solicitante Responsable:", placeholder="Ej. Prof. Carlos Ramírez")
+        sol_contacto = st.text_input("📧 Correo de Contacto / Teléfono:", placeholder="Ej. cramirez@upn.edu.co")
+        sol_motivo = st.text_area("📝 Motivo de la Solicitud / Asignatura:", placeholder="Ej. Monitoría especial de Cálculo Integral o reposición de clase.")
+
+        btn_enviar_sol = st.form_submit_button("📤 Enviar Solicitud a Coordinación", type="primary")
+
+        if btn_enviar_sol:
+            sol_h_ini = parsear_12h_a_24h(sol_h_ini_lbl)
+            sol_h_fin = parsear_12h_a_24h(sol_h_fin_lbl)
+
+            if sol_h_fin <= sol_h_ini:
+                st.error("La hora fin debe ser posterior a la hora inicio.")
+            elif not sol_docente.strip() or not sol_motivo.strip():
+                st.error("Por favor completa los campos obligatorios (Docente y Motivo).")
+            else:
+                f_str = sol_fecha.strftime("%Y-%m-%d")
+                conflictos = db.verificar_conflicto_horario(sol_salon, f_str, sol_h_ini, sol_h_fin)
+
+                if conflictos:
+                    st.warning(f"⚠️ **Nota de Advertencia:** El salón **{sol_salon}** registra una clase en esa franja. Tu solicitud ingresará a revisión administrativa.")
+
+                try:
+                    now_str = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    query_ins = """
+                        INSERT INTO solicitudes_prestamo 
+                        (espacio, fecha, hora_inicio, hora_fin, motivo, docente, contacto, estado, fecha_solicitud)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?)
+                    """
+                    params_ins = (sol_salon, f_str, sol_h_ini, sol_h_fin, sol_motivo, sol_docente, sol_contacto, now_str)
+
+                    if hasattr(db, "ejecutar_consulta"):
+                        db.ejecutar_consulta(query_ins, params_ins)
+                    elif hasattr(db, "conn") and db.conn:
+                        db.conn.execute(query_ins, params_ins)
+                        db.conn.commit()
+
+                    st.success("✅ **¡Solicitud enviada con éxito!** La coordinación revisará tu petición.")
+                except Exception as ex_sol:
+                    st.error(f"Error al registrar la solicitud: {ex_sol}")
+
+# -----------------------------------------------------------------------------
+# TAB APROBACIONES (SOLO ADMINISTRADOR Y COORDINACIÓN)
+# -----------------------------------------------------------------------------
+if st.session_state.authenticated and tab_aprobaciones:
+    with tab_aprobaciones:
+        st.subheader("📥 Gestión y Aprobación de Préstamos de Aulas")
+        st.caption("Revisa, aprueba o rechaza las peticiones de reserva enviadas por la comunidad académica.")
+
+        try:
+            query_sel = "SELECT * FROM solicitudes_prestamo ORDER BY id DESC"
+            if hasattr(db, "obtener_dataframe"):
+                df_solicitudes = db.obtener_dataframe(query_sel)
+            elif hasattr(db, "conn") and db.conn:
+                df_solicitudes = pd.read_sql_query(query_sel, db.conn)
+            else:
+                df_solicitudes = pd.DataFrame()
+        except Exception:
+            df_solicitudes = pd.DataFrame()
+
+        if df_solicitudes.empty:
+            st.info("No hay solicitudes registradas actualmente.")
+        else:
+            filtro_est = st.radio("Filtrar Solicitudes:", ["PENDIENTES", "TODAS"], horizontal=True)
+
+            if filtro_est == "PENDIENTES":
+                df_sol_ver = df_solicitudes[df_solicitudes["estado"] == "PENDIENTE"]
+            else:
+                df_sol_ver = df_solicitudes
+
+            if df_sol_ver.empty:
+                st.success("🎉 No hay solicitudes pendientes por revisar.")
+            else:
+                for _, r_sol in df_sol_ver.iterrows():
+                    s_id = r_sol["id"]
+                    s_esp = r_sol["espacio"]
+                    s_fec = r_sol["fecha"]
+                    s_ini = int(r_sol["hora_inicio"])
+                    s_fin = int(r_sol["hora_fin"])
+                    s_mot = r_sol["motivo"]
+                    s_doc = r_sol["docente"]
+                    s_con = r_sol.get("contacto", "N/A")
+                    s_est = r_sol["estado"]
+
+                    conf = db.verificar_conflicto_horario(s_esp, s_fec, s_ini, s_fin)
+
+                    with st.expander(f"📌 Solicitud #{s_id}: {s_esp} | {s_fec} ({formatear_12h(s_ini)} - {formatear_12h(s_fin)}) - [{s_est}]"):
+                        st.markdown(
+                            f"• **Solicitante:** **{s_doc}** (`{s_con}`)\n"
+                            f"• **Motivo:** {s_mot}\n"
+                            f"• **Fecha enviada:** {r_sol.get('fecha_solicitud', 'N/A')}"
+                        )
+
+                        if conf and s_est == "PENDIENTE":
+                            st.warning("⚠️ **Conflicto detectado:** Ya existe un horario asignado en este espacio para dicha hora.")
+
+                        if s_est == "PENDIENTE":
+                            col_ap1, col_ap2 = st.columns(2)
+                            with col_ap1:
+                                if st.button(f"🟢 Aprobar y Asignar #{s_id}", key=f"btn_ap_{s_id}", type="primary"):
+                                    db.agregar_evento_especial(
+                                        s_esp, s_fec, s_ini, s_fin, f"PRESTAMO: {s_mot}", s_doc, f"Aprobado por {st.session_state.username}",
+                                        usuario=st.session_state.username, rol=st.session_state.user_role
+                                    )
+                                    query_upd = "UPDATE solicitudes_prestamo SET estado='APROBADO' WHERE id=?"
+                                    if hasattr(db, "ejecutar_consulta"):
+                                        db.ejecutar_consulta(query_upd, (s_id,))
+                                    elif hasattr(db, "conn") and db.conn:
+                                        db.conn.execute(query_upd, (s_id,))
+                                        db.conn.commit()
+
+                                    st.success(f"✅ Solicitud #{s_id} aprobada e insertada en el horario.")
+                                    st.rerun()
+
+                            with col_ap2:
+                                if st.button(f"🔴 Rechazar #{s_id}", key=f"btn_rec_{s_id}"):
+                                    query_upd = "UPDATE solicitudes_prestamo SET estado='RECHAZADO' WHERE id=?"
+                                    if hasattr(db, "ejecutar_consulta"):
+                                        db.ejecutar_consulta(query_upd, (s_id,))
+                                    elif hasattr(db, "conn") and db.conn:
+                                        db.conn.execute(query_upd, (s_id,))
+                                        db.conn.commit()
+
+                                    st.info(f"❌ Solicitud #{s_id} rechazada.")
+                                    st.rerun()
+
+# -----------------------------------------------------------------------------
 # TAB NOVEDADES: GESTIÓN DE INASISTENCIAS Y NOVEDADES
 # -----------------------------------------------------------------------------
 if st.session_state.authenticated and tab_novedades_adm:
@@ -983,7 +1165,6 @@ if st.session_state.authenticated and tab_eventos_adm:
                 f_inicio_rec = col_f_rec1.date_input("Fecha Inicio:", value=datetime.date.today())
                 f_fin_rec = col_f_rec2.date_input("Fecha Fin:", value=datetime.date.today() + datetime.timedelta(weeks=4))
                 
-                # Generar las fechas correspondientes al mismo día de la semana entre el rango seleccionado
                 fechas_evento = []
                 if f_fin_rec >= f_inicio_rec:
                     curr_date = f_inicio_rec
@@ -1002,7 +1183,6 @@ if st.session_state.authenticated and tab_eventos_adm:
         ev_asig = col_info1.text_input("6️⃣ Nombre del Evento / Contingencia Remota:", placeholder="Ej. CLASE REMOTA / TALLER VIRTUAL")
         ev_doc = col_info2.text_input("7️⃣ Responsable / Docente:", placeholder="Ej. ING. GARCÍA")
 
-        # Verificar conflictos para todas las fechas seleccionadas
         conflictos_totales = []
         for f_e in fechas_evento:
             f_str = f_e.strftime("%Y-%m-%d")
@@ -1041,7 +1221,6 @@ if st.session_state.authenticated and tab_eventos_adm:
             elif not fechas_evento:
                 st.error("Rango de fechas no válido.")
             else:
-                # Guardar en BD fecha por fecha
                 registros_guardados = 0
                 for f_e in fechas_evento:
                     f_str = f_e.strftime("%Y-%m-%d")

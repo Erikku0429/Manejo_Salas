@@ -469,3 +469,43 @@ class DatabaseModel:
         cursor.execute("DELETE FROM novedades WHERE id = ?", (novedad_id,))
         conn.commit()
         conn.close()
+
+    def crear_tabla_solicitudes_si_no_existe(self):
+        query = """
+            CREATE TABLE IF NOT EXISTS solicitudes_prestamo (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                espacio TEXT NOT NULL,
+                fecha TEXT NOT NULL,
+                hora_inicio INTEGER NOT NULL,
+                hora_fin INTEGER NOT NULL,
+                motivo TEXT NOT NULL,
+                docente TEXT NOT NULL,
+                contacto TEXT,
+                estado TEXT DEFAULT 'PENDIENTE',
+                fecha_solicitud TEXT,
+                observacion_respuesta TEXT
+            )
+        """
+        try:
+            self.ejecutar_consulta(query)
+        except Exception as e:
+            pass
+
+    def registrar_solicitud_prestamo(self, espacio, fecha, hora_inicio, hora_fin, motivo, docente, contacto):
+        self.crear_tabla_solicitudes_si_no_existe()
+        fecha_sol = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        query = """
+            INSERT INTO solicitudes_prestamo 
+            (espacio, fecha, hora_inicio, hora_fin, motivo, docente, contacto, estado, fecha_solicitud)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'PENDIENTE', ?)
+        """
+        self.ejecutar_consulta(query, (espacio, fecha, hora_inicio, hora_fin, motivo, docente, contacto, fecha_sol))
+
+    def obtener_solicitudes_prestamo(self):
+        self.crear_tabla_solicitudes_si_no_existe()
+        query = "SELECT * FROM solicitudes_prestamo ORDER BY id DESC"
+        return self.obtener_dataframe(query)
+
+    def cambiar_estado_solicitud(self, solicitud_id, nuevo_estado):
+        query = "UPDATE solicitudes_prestamo SET estado = ? WHERE id = ?"
+        self.ejecutar_consulta(query, (nuevo_estado, solicitud_id))
